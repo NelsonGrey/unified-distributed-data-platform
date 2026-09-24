@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
+	adminv1 "github.com/marknelson/uddp/api/admin/v1"
 	nativev1 "github.com/marknelson/uddp/api/native/v1"
 )
 
@@ -68,6 +69,7 @@ func run(args []string) error {
 	defer conn.Close()
 	client := nativev1.NewStateServiceClient(conn)
 	streamClient := nativev1.NewStreamServiceClient(conn)
+	adminClient := adminv1.NewAdminServiceClient(conn)
 
 	switch cmd, rest := rest[0], rest[1:]; cmd {
 	case "get":
@@ -163,13 +165,57 @@ func run(args []string) error {
 		fmt.Printf("offset=%d\n", resp.Offset)
 		return nil
 
+	case "add-node":
+		if len(rest) != 2 {
+			return fmt.Errorf("usage: uddpctl add-node <id> <raft-addr>")
+		}
+		resp, err := adminClient.AddNode(ctx, &adminv1.AddNodeRequest{Id: rest[0], RaftAddr: rest[1]})
+		if err != nil {
+			return err
+		}
+		printCluster(resp.Cluster)
+		return nil
+
+	case "remove-node":
+		if len(rest) != 1 {
+			return fmt.Errorf("usage: uddpctl remove-node <id>")
+		}
+		resp, err := adminClient.RemoveNode(ctx, &adminv1.RemoveNodeRequest{Id: rest[0]})
+		if err != nil {
+			return err
+		}
+		printCluster(resp.Cluster)
+		return nil
+
+	case "list-nodes":
+		if len(rest) != 0 {
+			return fmt.Errorf("usage: uddpctl list-nodes")
+		}
+		resp, err := adminClient.ListNodes(ctx, &adminv1.ListNodesRequest{})
+		if err != nil {
+			return err
+		}
+		printCluster(resp.Cluster)
+		return nil
+
 	default:
 		return usageError()
 	}
 }
 
+func printCluster(c *adminv1.Cluster) {
+	fmt.Printf("leader: %s (%s)\n", c.LeaderId, c.LeaderRaftAddr)
+	for _, n := range c.Nodes {
+		voter := ""
+		if n.IsVoter {
+			voter = " voter"
+		}
+		fmt.Printf("  %s\t%s%s\n", n.Id, n.RaftAddr, voter)
+	}
+}
+
 func usageError() error {
-	return fmt.Errorf("usage: uddpctl [--addr host:port] [--namespace id] [--tls] [--tls-ca file] [--insecure-skip-verify] [--token t] <get|put|delete|fetch|commit-offset|offset> ...")
+	return fmt.Errorf("usage: uddpctl [--addr host:port] [--namespace id] [--tls] [--tls-ca file] [--insecure-skip-verify] [--token t] <get|put|delete|fetch|commit-offset|offset|add-node|remove-node|list-nodes> ...")
 }
 
 func dialCredentials(useTLS bool, caPath string, insecureSkipVerify bool) (credentials.TransportCredentials, error) {

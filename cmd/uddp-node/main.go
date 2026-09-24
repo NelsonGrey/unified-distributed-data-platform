@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
+	adminv1 "github.com/marknelson/uddp/api/admin/v1"
 	nativev1 "github.com/marknelson/uddp/api/native/v1"
 	internalapi "github.com/marknelson/uddp/internal/api"
 	"github.com/marknelson/uddp/internal/auth"
@@ -201,6 +202,9 @@ func run(cfg nodeConfig) error {
 		Offsets:  offsets,
 		Registry: registry,
 	})
+	if replNode != nil {
+		adminv1.RegisterAdminServiceServer(grpcServer, &internalapi.AdminServer{Node: replNode})
+	}
 
 	// The engine and offset store recovered successfully above, so this
 	// process is ready to serve. TR-015 distinguishes ready/degraded/
