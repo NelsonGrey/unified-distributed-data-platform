@@ -158,12 +158,67 @@ func (n *Node) LeaderAddr() string {
 	return string(addr)
 }
 
-// AddVoter adds a new voting member to a running cluster. Call this
-// against the current leader (Propose-style calls to a non-leader fail;
-// so does this).
+// AddVoter adds a new voting member to a running cluster, or updates its
+// address if it's already a member — raft treats re-adding an existing
+// (id, addr) pair as a no-op, which is what makes this safe to retry
+// (TR-007). Call this against the current leader; like Propose, it fails
+// against a non-leader.
 func (n *Node) AddVoter(id, addr string) error {
 	f := n.raft.AddVoter(raft.ServerID(id), raft.ServerAddress(addr), 0, 0)
 	return f.Error()
+}
+
+// RemoveServer removes a member (voter or otherwise) from a running
+// cluster. Removing a server that's already absent is a no-op, same
+// idempotency reasoning as AddVoter. Call this against the current leader.
+//
+// This does not protect the caller from removing enough voters to lose
+// quorum — raft doesn't refuse that the way it might reject removing
+// itself in some configurations, and there is no PlacementPlanner-style
+// safety check here
+// yet (TR-008's "abort boundaries before execution" is exactly this,
+// deferred to the same later slice as rebalance/upgrade planning). An
+// operator can currently take a cluster below quorum with this call.
+func (n *Node) RemoveServer(id string) error {
+	f := n.raft.RemoveServer(raft.ServerID(id), 0, 0)
+	return f.Error()
+}
+
+// Servers returns the current raft configuration: every member's ID,
+// address, and whether it's a voter, plus which one (if any) this node
+// currently believes is the leader.
+type Servers struct {
+	Members    []ServerInfo
+	LeaderID   string
+	LeaderAddr string
+}
+
+// ServerInfo describes one cluster member.
+type ServerInfo struct {
+	ID      string
+	Addr    string
+	IsVoter bool
+}
+
+// ListServers returns the cluster's current configuration. Safe to call
+// against any node, not just the leader — it reflects that node's own
+// last-known configuration, which may be slightly stale on a follower.
+func (n *Node) ListServers() (Servers, error) {
+	f := n.raft.GetConfiguration()
+	if err := f.Error(); err != nil {
+		return Servers{}, err
+	}
+	leaderAddr, leaderID := n.raft.LeaderWithID()
+
+	out := Servers{LeaderID: string(leaderID), LeaderAddr: string(leaderAddr)}
+	for _, s := range f.Configuration().Servers {
+		out.Members = append(out.Members, ServerInfo{
+			ID:      string(s.ID),
+			Addr:    string(s.Address),
+			IsVoter: s.Suffrage == raft.Voter,
+		})
+	}
+	return out, nil
 }
 
 // Shutdown stops this node's raft participation. It does not close the

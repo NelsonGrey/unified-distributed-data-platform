@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package uddp.admin.v1;
+
+option go_package = "github.com/marknelson/uddp/api/admin/v1;adminv1";
+
+// AdminService is the first real slice of the control plane (BRD BR-004,
+// TRD TR-007/TR-008): live cluster membership management. Before this,
+// cluster membership was fixed at process start via --raft-peers, with no
+// operator workflow to change it. Scoped deliberately narrow — this is
+// membership changes only, not the full PlacementPlanner/RebalancePlan/
+// UpgradePlan machinery the DDD's Cluster Orchestration context
+// describes, which stays deferred until this slice earns it.
+//
+// Every RPC here must be called against the current raft leader; a
+// non-leader returns UNAVAILABLE naming the leader if known, the same
+// pattern StateService already uses for writes.
+service AdminService {
+  rpc AddNode(AddNodeRequest) returns (AddNodeResponse);
+  rpc RemoveNode(RemoveNodeRequest) returns (RemoveNodeResponse);
+  rpc ListNodes(ListNodesRequest) returns (ListNodesResponse);
+}
+
+message AddNodeRequest {
+  string id = 1;
+  string raft_addr = 2; // the joining node's raft transport address
+}
+
+message AddNodeResponse {
+  Cluster cluster = 1; // the resulting configuration, for immediate confirmation
+}
+
+message RemoveNodeRequest {
+  string id = 1;
+}
+
+message RemoveNodeResponse {
+  Cluster cluster = 1;
+}
+
+message ListNodesRequest {}
+
+message ListNodesResponse {
+  Cluster cluster = 1;
+}
+
+message Cluster {
+  repeated Node nodes = 1;
+  string leader_id = 2;
+  string leader_raft_addr = 3;
+}
+
+message Node {
+  string id = 1;
+  string raft_addr = 2;
+  bool is_voter = 3;
+}
