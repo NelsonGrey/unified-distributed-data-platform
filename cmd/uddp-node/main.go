@@ -22,6 +22,7 @@ import (
 
 	nativev1 "github.com/marknelson/uddp/api/native/v1"
 	internalapi "github.com/marknelson/uddp/internal/api"
+	"github.com/marknelson/uddp/internal/catalog"
 	"github.com/marknelson/uddp/internal/engine"
 	"github.com/marknelson/uddp/internal/observability"
 	"github.com/marknelson/uddp/internal/streaming"
@@ -46,6 +47,12 @@ func main() {
 }
 
 func run(addr, httpAddr, dataDir, namespaceID, profile string) error {
+	spec, err := catalog.NewNamespaceSpec(namespaceID, profile)
+	if err != nil {
+		return err
+	}
+	registry := catalog.NewRegistry(spec)
+
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return err
 	}
@@ -73,14 +80,14 @@ func run(addr, httpAddr, dataDir, namespaceID, profile string) error {
 
 	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(metrics.UnaryServerInterceptor()))
 	nativev1.RegisterStateServiceServer(grpcServer, &internalapi.StateServer{
-		Engine:            eng,
-		NamespaceID:       namespaceID,
-		DurabilityProfile: profile,
-		Metrics:           metrics,
+		Engine:   eng,
+		Registry: registry,
+		Metrics:  metrics,
 	})
 	nativev1.RegisterStreamServiceServer(grpcServer, &internalapi.StreamServer{
-		Engine:  eng,
-		Offsets: offsets,
+		Engine:   eng,
+		Offsets:  offsets,
+		Registry: registry,
 	})
 
 	// The engine and offset store recovered successfully above, so this

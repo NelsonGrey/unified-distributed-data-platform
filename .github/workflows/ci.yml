@@ -29,7 +29,34 @@ jobs:
         run: go vet ./...
 
       - name: Test
-        run: go test ./...
+        run: go test -race -cover ./...
 
       - name: Build
         run: go build ./...
+
+  # Informational only — not a required status check, and not the TR-019
+  # benchmark harness (that needs a fixed environment manifest and multiple
+  # repetitions before a number here could back a public performance claim
+  # per BR-010). This is a regression tripwire: it fails loudly if a change
+  # makes a hot path catastrophically slower, and gives every PR a visible
+  # before/after without needing dedicated benchmark infrastructure yet.
+  benchmark:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Benchmark
+        run: |
+          out=$(mktemp)
+          go test -run=^$ -bench=. -benchmem ./... | tee "$out"
+          {
+            echo '### Benchmark results'
+            echo '```'
+            cat "$out"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
