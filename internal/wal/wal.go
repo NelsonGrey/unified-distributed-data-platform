@@ -41,6 +41,12 @@ type WAL struct {
 	file *os.File
 	w    *bufio.Writer
 	next uint64 // next commit position to assign
+
+	// byteOffsets[i] is the file byte offset of the record with commit
+	// position i+1. It backs ReadRange's random access into the log, which
+	// is how the change stream (TRD 4.5/§4.5 "log offset") is served to
+	// consumers without rescanning from the start on every fetch.
+	byteOffsets []int64
 }
 
 // Open opens or creates the log at path and replays it, invoking replay for
@@ -54,7 +60,7 @@ func Open(path string, replay func(Record) error) (*WAL, error) {
 		return nil, fmt.Errorf("wal: open %s: %w", path, err)
 	}
 
-	next, err := recover_(f, replay)
+	next, byteOffsets, err := recover_(f, replay)
 	if err != nil {
 		f.Close()
 		return nil, err
@@ -65,16 +71,17 @@ func Open(path string, replay func(Record) error) (*WAL, error) {
 		return nil, fmt.Errorf("wal: seek end: %w", err)
 	}
 
-	return &WAL{file: f, w: bufio.NewWriter(f), next: next}, nil
+	return &WAL{file: f, w: bufio.NewWriter(f), next: next, byteOffsets: byteOffsets}, nil
 }
 
 // recover_ scans the log from the start, validating each record's checksum
 // and enforcing monotonic commit positions. It returns the next commit
-// position to assign.
-func recover_(f *os.File, replay func(Record) error) (uint64, error) {
+// position to assign and the byte offset of every valid record found.
+func recover_(f *os.File, replay func(Record) error) (uint64, []int64, error) {
 	r := bufio.NewReader(f)
 	var next uint64 = 1
 	var offset int64
+	var byteOffsets []int64
 
 	for {
 		rec, n, err := readRecord(r)
@@ -85,26 +92,27 @@ func recover_(f *os.File, replay func(Record) error) (uint64, error) {
 			// Truncate the incomplete trailing write so future appends
 			// start from a clean, validated boundary.
 			if terr := f.Truncate(offset); terr != nil {
-				return 0, fmt.Errorf("wal: truncate torn tail: %w", terr)
+				return 0, nil, fmt.Errorf("wal: truncate torn tail: %w", terr)
 			}
 			break
 		}
 		if err != nil {
-			return 0, fmt.Errorf("wal: corrupt record at offset %d: %w", offset, err)
+			return 0, nil, fmt.Errorf("wal: corrupt record at offset %d: %w", offset, err)
 		}
 		if rec.CommitPosition != next {
-			return 0, fmt.Errorf("wal: non-monotonic commit position at offset %d: got %d want %d", offset, rec.CommitPosition, next)
+			return 0, nil, fmt.Errorf("wal: non-monotonic commit position at offset %d: got %d want %d", offset, rec.CommitPosition, next)
 		}
 		if replay != nil {
 			if err := replay(*rec); err != nil {
-				return 0, fmt.Errorf("wal: replay commit %d: %w", rec.CommitPosition, err)
+				return 0, nil, fmt.Errorf("wal: replay commit %d: %w", rec.CommitPosition, err)
 			}
 		}
+		byteOffsets = append(byteOffsets, offset)
 		offset += n
 		next++
 	}
 
-	return next, nil
+	return next, byteOffsets, nil
 }
 
 var errTornRecord = fmt.Errorf("torn record")
@@ -119,7 +127,7 @@ var errTornRecord = fmt.Errorf("torn record")
 //	uint32 valueLen      + value
 //	int64  expiresAtUnixNano
 //	uint32 idempotencyKeyLen + idempotencyKey
-func readRecord(r *bufio.Reader) (*Record, int64, error) {
+func readRecord(r io.Reader) (*Record, int64, error) {
 	var lenBuf [4]byte
 	if _, err := io.ReadFull(r, lenBuf[:]); err != nil {
 		if err == io.EOF {
@@ -239,6 +247,12 @@ func (w *WAL) Append(rec Record) (uint64, error) {
 	var lenBuf [4]byte
 	binary.LittleEndian.PutUint32(lenBuf[:], uint32(len(body)))
 
+	pos, err := w.file.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return 0, fmt.Errorf("wal: tell: %w", err)
+	}
+	recordOffset := pos + int64(w.w.Buffered())
+
 	if _, err := w.w.Write(lenBuf[:]); err != nil {
 		return 0, fmt.Errorf("wal: write length: %w", err)
 	}
@@ -252,8 +266,44 @@ func (w *WAL) Append(rec Record) (uint64, error) {
 		return 0, fmt.Errorf("wal: fsync: %w", err)
 	}
 
+	w.byteOffsets = append(w.byteOffsets, recordOffset)
 	w.next++
 	return rec.CommitPosition, nil
+}
+
+// ReadRange returns up to limit records starting at commit position from
+// (inclusive), in commit order. It returns fewer than limit records (or
+// none) if the log doesn't yet have that many past from. Concurrent with
+// Append: it only reads byte ranges already fsynced, via a read-only handle
+// so it never interferes with the writer's file offset.
+func (w *WAL) ReadRange(from uint64, limit int) ([]Record, error) {
+	w.mu.Lock()
+	if from < 1 || int(from-1) >= len(w.byteOffsets) || limit <= 0 {
+		w.mu.Unlock()
+		return nil, nil
+	}
+	startOffset := w.byteOffsets[from-1]
+	w.mu.Unlock()
+
+	fi, err := w.file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("wal: stat: %w", err)
+	}
+	sr := io.NewSectionReader(w.file, startOffset, fi.Size()-startOffset)
+	r := bufio.NewReader(sr)
+
+	records := make([]Record, 0, limit)
+	for i := 0; i < limit; i++ {
+		rec, _, err := readRecord(r)
+		if err == io.EOF || err == errTornRecord {
+			break
+		}
+		if err != nil {
+			return records, fmt.Errorf("wal: read range at position %d: %w", from+uint64(i), err)
+		}
+		records = append(records, *rec)
+	}
+	return records, nil
 }
 
 // Close flushes and closes the underlying file.

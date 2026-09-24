@@ -18,6 +18,7 @@ import (
 	nativev1 "github.com/marknelson/uddp/api/native/v1"
 	internalapi "github.com/marknelson/uddp/internal/api"
 	"github.com/marknelson/uddp/internal/engine"
+	"github.com/marknelson/uddp/internal/streaming"
 )
 
 func main() {
@@ -25,7 +26,10 @@ func main() {
 		addr        = flag.String("addr", "127.0.0.1:7070", "gRPC listen address")
 		dataDir     = flag.String("data-dir", "./data", "directory holding the WAL and local state")
 		namespaceID = flag.String("namespace", "default", "namespace served by this single-partition node")
-		profile     = flag.String("profile", "durable", "durability profile reported in responses (cache|durable)")
+		// cache is the only profile this single-node build can honestly
+		// report: durable/strong require replica quorum (TRD 4.3), which
+		// doesn't exist until delivery slice 2.
+		profile = flag.String("profile", "cache", "durability profile reported in responses (cache only, until replication ships)")
 	)
 	flag.Parse()
 
@@ -39,12 +43,19 @@ func run(addr, dataDir, namespaceID, profile string) error {
 		return err
 	}
 	walPath := filepath.Join(dataDir, "partition-0.wal")
+	offsetsPath := filepath.Join(dataDir, "consumer-offsets.wal")
 
 	eng, err := engine.Open(walPath, nil)
 	if err != nil {
 		return err
 	}
 	defer eng.Close()
+
+	offsets, err := streaming.Open(offsetsPath)
+	if err != nil {
+		return err
+	}
+	defer offsets.Close()
 
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -56,6 +67,10 @@ func run(addr, dataDir, namespaceID, profile string) error {
 		Engine:            eng,
 		NamespaceID:       namespaceID,
 		DurabilityProfile: profile,
+	})
+	nativev1.RegisterStreamServiceServer(grpcServer, &internalapi.StreamServer{
+		Engine:  eng,
+		Offsets: offsets,
 	})
 
 	sigCh := make(chan os.Signal, 1)

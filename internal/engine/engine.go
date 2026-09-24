@@ -244,6 +244,34 @@ func (e *Engine) CompareAndSet(key, value []byte, expectedVersion uint64, ttlSec
 	return out, nil
 }
 
+// ChangeRecord is one entry in the partition's ordered change stream. Its
+// Offset is the same commit position visible as the mutation's Version
+// (TRD 4.5: "Commit makes the state version and log offset visible
+// together") — there is no separate change log to fall out of sync with
+// state, which is what removes the customer-managed dual-write (BR-003).
+type ChangeRecord struct {
+	Offset uint64
+	Kind   wal.RecordKind
+	Key    []byte
+	Value  []byte
+}
+
+// Fetch returns up to limit change records starting at offset from
+// (inclusive), in commit order. Every committed Put/Delete produces exactly
+// one change record; there is no per-namespace opt-out in this slice since
+// the always-on change stream is the product's core differentiator.
+func (e *Engine) Fetch(from uint64, limit int) ([]ChangeRecord, error) {
+	recs, err := e.log.ReadRange(from, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ChangeRecord, len(recs))
+	for i, r := range recs {
+		out[i] = ChangeRecord{Offset: r.CommitPosition, Kind: r.Kind, Key: r.Key, Value: r.Value}
+	}
+	return out, nil
+}
+
 // Close releases the underlying WAL file.
 func (e *Engine) Close() error {
 	return e.log.Close()
