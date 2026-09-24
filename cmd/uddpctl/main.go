@@ -7,6 +7,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"flag"
 	"fmt"
 	"os"
@@ -14,7 +16,9 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 
 	nativev1 "github.com/marknelson/uddp/api/native/v1"
 )
@@ -30,6 +34,10 @@ func run(args []string) error {
 	fs := flag.NewFlagSet("uddpctl", flag.ExitOnError)
 	addr := fs.String("addr", "127.0.0.1:7070", "uddp-node gRPC address")
 	namespace := fs.String("namespace", "default", "namespace id")
+	useTLS := fs.Bool("tls", false, "use TLS to connect (implied by --tls-ca or --insecure-skip-verify)")
+	tlsCA := fs.String("tls-ca", "", "path to a PEM CA certificate to trust, in addition to the system roots (for a self-signed or private CA)")
+	insecureSkipVerify := fs.Bool("insecure-skip-verify", false, "skip server certificate verification (dev only, e.g. against a self-signed cert with no --tls-ca)")
+	token := fs.String("token", "", "bearer token to send with every request (prefer the UDDP_TOKEN env var over this flag, which is visible in the process list)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -38,10 +46,22 @@ func run(args []string) error {
 		return usageError()
 	}
 
+	if *token == "" {
+		*token = os.Getenv("UDDP_TOKEN")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	if *token != "" {
+		ctx = metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+*token)
+	}
 
-	conn, err := grpc.NewClient(*addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	transportCreds, err := dialCredentials(*useTLS, *tlsCA, *insecureSkipVerify)
+	if err != nil {
+		return err
+	}
+
+	conn, err := grpc.NewClient(*addr, grpc.WithTransportCredentials(transportCreds))
 	if err != nil {
 		return fmt.Errorf("dial %s: %w", *addr, err)
 	}
@@ -149,5 +169,25 @@ func run(args []string) error {
 }
 
 func usageError() error {
-	return fmt.Errorf("usage: uddpctl [--addr host:port] [--namespace id] <get|put|delete|fetch|commit-offset|offset> ...")
+	return fmt.Errorf("usage: uddpctl [--addr host:port] [--namespace id] [--tls] [--tls-ca file] [--insecure-skip-verify] [--token t] <get|put|delete|fetch|commit-offset|offset> ...")
+}
+
+func dialCredentials(useTLS bool, caPath string, insecureSkipVerify bool) (credentials.TransportCredentials, error) {
+	if !useTLS && caPath == "" && !insecureSkipVerify {
+		return insecure.NewCredentials(), nil
+	}
+
+	cfg := &tls.Config{InsecureSkipVerify: insecureSkipVerify}
+	if caPath != "" {
+		pem, err := os.ReadFile(caPath)
+		if err != nil {
+			return nil, fmt.Errorf("read --tls-ca %s: %w", caPath, err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("no valid certificates found in --tls-ca %s", caPath)
+		}
+		cfg.RootCAs = pool
+	}
+	return credentials.NewTLS(cfg), nil
 }

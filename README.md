@@ -38,6 +38,21 @@ curl http://127.0.0.1:7071/healthz
 curl http://127.0.0.1:7071/metrics
 ```
 
+### TLS and authentication
+
+By default the gRPC listener is plaintext with no authentication — fine for local development bound to `127.0.0.1`, not for anything else. Enable both for any deployment beyond that:
+
+```sh
+openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 1 \
+  -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+
+UDDP_AUTH_TOKEN=s3cret go run ./cmd/uddp-node --tls-cert=cert.pem --tls-key=key.pem
+
+UDDP_TOKEN=s3cret go run ./cmd/uddpctl --tls --tls-ca=cert.pem get mykey
+```
+
+Prefer the `UDDP_AUTH_TOKEN`/`UDDP_TOKEN` env vars over `--auth-token`/`--token` — flag values are visible in the process list. This is a shared bearer token, not the mTLS/OIDC workload identity TRD §7 specifies as the real mechanism — it exists so nothing is left unauthenticated while that's staged for a later slice.
+
 ### Kubernetes
 
 ```sh
@@ -45,7 +60,7 @@ docker build -t uddp-node:local .
 kubectl apply -k deploy/kubernetes
 ```
 
-See [deploy/kubernetes/README.md](deploy/kubernetes/README.md) for details and current limitations (single replica only, no TLS yet).
+See [deploy/kubernetes/README.md](deploy/kubernetes/README.md) for details and current limitations (single replica only; TLS/auth exist but aren't wired into the manifests yet).
 
 ## Code layout
 
@@ -55,6 +70,8 @@ Follows the [DDD](docs/DOMAIN_DRIVEN_DESIGN.md#8-code-organization-guidance) org
 - `internal/engine` — deterministic single-partition state machine (TR-002, TR-003) built on the WAL; state mutation and change record share one commit (TRD 4.5).
 - `internal/streaming` — durable, restart-safe consumer-group offset tracking.
 - `internal/observability` — Prometheus metrics and gRPC health checking (TR-014/TR-015), scoped to what a single, unreplicated node can honestly report.
+- `internal/auth` — shared bearer token authentication for every RPC (health checks exempted), a smaller stand-in for the mTLS/OIDC workload identity in TRD §7.
+- `internal/catalog` — validates a namespace's workload profile and rejects requests to a namespace this node doesn't serve (TR-010).
 - `api/native/v1` — versioned gRPC API definitions (TRD 6): `StateService` (KV) and `StreamService` (change stream/consumer offsets).
 - `internal/api` — gRPC services adapting the engine to the native API.
 - `cmd/uddp-node` — single-node runtime binary.

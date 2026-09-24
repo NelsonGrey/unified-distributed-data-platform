@@ -6,7 +6,9 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -17,11 +19,13 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
 	nativev1 "github.com/marknelson/uddp/api/native/v1"
 	internalapi "github.com/marknelson/uddp/internal/api"
+	"github.com/marknelson/uddp/internal/auth"
 	"github.com/marknelson/uddp/internal/catalog"
 	"github.com/marknelson/uddp/internal/engine"
 	"github.com/marknelson/uddp/internal/observability"
@@ -38,15 +42,24 @@ func main() {
 		// report: durable/strong require replica quorum (TRD 4.3), which
 		// doesn't exist until delivery slice 2.
 		profile = flag.String("profile", "cache", "durability profile reported in responses (cache only, until replication ships)")
+
+		tlsCert = flag.String("tls-cert", "", "path to a PEM-encoded TLS certificate; if empty, the gRPC listener is plaintext (fine for local dev bound to 127.0.0.1, not for anything else)")
+		tlsKey  = flag.String("tls-key", "", "path to the PEM-encoded private key for --tls-cert")
+
+		authToken = flag.String("auth-token", "", "shared bearer token required on every RPC (prefer the UDDP_AUTH_TOKEN env var over this flag, which is visible in the process list); if empty, no authentication is enforced")
 	)
 	flag.Parse()
 
-	if err := run(*addr, *httpAddr, *dataDir, *namespaceID, *profile); err != nil {
+	if *authToken == "" {
+		*authToken = os.Getenv("UDDP_AUTH_TOKEN")
+	}
+
+	if err := run(*addr, *httpAddr, *dataDir, *namespaceID, *profile, *tlsCert, *tlsKey, *authToken); err != nil {
 		log.Fatalf("uddp-node: %v", err)
 	}
 }
 
-func run(addr, httpAddr, dataDir, namespaceID, profile string) error {
+func run(addr, httpAddr, dataDir, namespaceID, profile, tlsCert, tlsKey, authToken string) error {
 	spec, err := catalog.NewNamespaceSpec(namespaceID, profile)
 	if err != nil {
 		return err
@@ -78,7 +91,31 @@ func run(addr, httpAddr, dataDir, namespaceID, profile string) error {
 		return err
 	}
 
-	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(metrics.UnaryServerInterceptor()))
+	var serverOpts []grpc.ServerOption
+
+	tlsEnabled := tlsCert != "" || tlsKey != ""
+	if tlsEnabled {
+		if tlsCert == "" || tlsKey == "" {
+			return fmt.Errorf("both --tls-cert and --tls-key must be set together")
+		}
+		cert, err := tls.LoadX509KeyPair(tlsCert, tlsKey)
+		if err != nil {
+			return fmt.Errorf("load TLS keypair: %w", err)
+		}
+		serverOpts = append(serverOpts, grpc.Creds(credentials.NewTLS(&tls.Config{Certificates: []tls.Certificate{cert}})))
+	} else {
+		log.Println("uddp-node: WARNING starting without TLS (--tls-cert/--tls-key not set) — traffic is plaintext; only safe for local development")
+	}
+
+	interceptors := []grpc.UnaryServerInterceptor{metrics.UnaryServerInterceptor()}
+	if authToken != "" {
+		interceptors = append(interceptors, auth.UnaryServerInterceptor(authToken))
+	} else {
+		log.Println("uddp-node: WARNING starting without authentication (--auth-token/UDDP_AUTH_TOKEN not set) — any client can read and write every key")
+	}
+	serverOpts = append(serverOpts, grpc.ChainUnaryInterceptor(interceptors...))
+
+	grpcServer := grpc.NewServer(serverOpts...)
 	nativev1.RegisterStateServiceServer(grpcServer, &internalapi.StateServer{
 		Engine:   eng,
 		Registry: registry,
@@ -124,6 +161,6 @@ func run(addr, httpAddr, dataDir, namespaceID, profile string) error {
 		grpcServer.GracefulStop()
 	}()
 
-	log.Printf("uddp-node: serving namespace %q (profile=%s) on %s (grpc) / %s (http), wal=%s", namespaceID, profile, addr, httpAddr, walPath)
+	log.Printf("uddp-node: serving namespace %q (profile=%s) on %s (grpc, tls=%v) / %s (http), wal=%s", namespaceID, profile, addr, tlsEnabled, httpAddr, walPath)
 	return grpcServer.Serve(lis)
 }
