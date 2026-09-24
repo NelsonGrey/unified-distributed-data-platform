@@ -8,6 +8,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	nativev1 "github.com/marknelson/uddp/api/native/v1"
+	"github.com/marknelson/uddp/internal/catalog"
 	"github.com/marknelson/uddp/internal/engine"
 	"github.com/marknelson/uddp/internal/streaming"
 	"github.com/marknelson/uddp/internal/wal"
@@ -18,13 +19,17 @@ import (
 type StreamServer struct {
 	nativev1.UnimplementedStreamServiceServer
 
-	Engine  *engine.Engine
-	Offsets *streaming.OffsetStore
+	Engine   *engine.Engine
+	Offsets  *streaming.OffsetStore
+	Registry *catalog.Registry
 }
 
 const defaultMaxRecords = 500
 
 func (s *StreamServer) Fetch(_ context.Context, req *nativev1.FetchRequest) (*nativev1.FetchResponse, error) {
+	if err := checkNamespace(s.Registry, req.NamespaceId); err != nil {
+		return nil, err
+	}
 	if req.FromOffset == 0 {
 		return nil, status.Error(codes.InvalidArgument, "from_offset must be >= 1")
 	}
@@ -65,6 +70,9 @@ func toChangeKind(k wal.RecordKind) nativev1.ChangeKind {
 }
 
 func (s *StreamServer) CommitOffset(_ context.Context, req *nativev1.CommitOffsetRequest) (*nativev1.CommitOffsetResponse, error) {
+	if err := checkNamespace(s.Registry, req.NamespaceId); err != nil {
+		return nil, err
+	}
 	if req.ConsumerGroup == "" {
 		return nil, status.Error(codes.InvalidArgument, "consumer_group must not be empty")
 	}
@@ -79,6 +87,9 @@ func (s *StreamServer) CommitOffset(_ context.Context, req *nativev1.CommitOffse
 }
 
 func (s *StreamServer) FetchOffset(_ context.Context, req *nativev1.FetchOffsetRequest) (*nativev1.FetchOffsetResponse, error) {
+	if err := checkNamespace(s.Registry, req.NamespaceId); err != nil {
+		return nil, err
+	}
 	if req.ConsumerGroup == "" {
 		return nil, status.Error(codes.InvalidArgument, "consumer_group must not be empty")
 	}

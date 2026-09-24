@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	nativev1 "github.com/marknelson/uddp/api/native/v1"
+	"github.com/marknelson/uddp/internal/catalog"
 	"github.com/marknelson/uddp/internal/engine"
 	"github.com/marknelson/uddp/internal/observability"
 )
@@ -21,13 +22,15 @@ import (
 type StateServer struct {
 	nativev1.UnimplementedStateServiceServer
 
-	Engine            *engine.Engine
-	NamespaceID       string
-	DurabilityProfile string
-	Metrics           *observability.Metrics // optional; nil disables commit-position gauge updates
+	Engine   *engine.Engine
+	Registry *catalog.Registry
+	Metrics  *observability.Metrics // optional; nil disables commit-position gauge updates
 }
 
 func (s *StateServer) Get(_ context.Context, req *nativev1.GetRequest) (*nativev1.GetResponse, error) {
+	if err := checkNamespace(s.Registry, req.NamespaceId); err != nil {
+		return nil, err
+	}
 	if len(req.Key) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "key must not be empty")
 	}
@@ -36,6 +39,9 @@ func (s *StateServer) Get(_ context.Context, req *nativev1.GetRequest) (*nativev
 }
 
 func (s *StateServer) Put(_ context.Context, req *nativev1.PutRequest) (*nativev1.MutationResponse, error) {
+	if err := checkNamespace(s.Registry, req.NamespaceId); err != nil {
+		return nil, err
+	}
 	if len(req.Key) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "key must not be empty")
 	}
@@ -47,6 +53,9 @@ func (s *StateServer) Put(_ context.Context, req *nativev1.PutRequest) (*nativev
 }
 
 func (s *StateServer) Delete(_ context.Context, req *nativev1.DeleteRequest) (*nativev1.MutationResponse, error) {
+	if err := checkNamespace(s.Registry, req.NamespaceId); err != nil {
+		return nil, err
+	}
 	if len(req.Key) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "key must not be empty")
 	}
@@ -58,6 +67,9 @@ func (s *StateServer) Delete(_ context.Context, req *nativev1.DeleteRequest) (*n
 }
 
 func (s *StateServer) CompareAndSet(_ context.Context, req *nativev1.CompareAndSetRequest) (*nativev1.MutationResponse, error) {
+	if err := checkNamespace(s.Registry, req.NamespaceId); err != nil {
+		return nil, err
+	}
 	if len(req.Key) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "key must not be empty")
 	}
@@ -72,16 +84,27 @@ func (s *StateServer) CompareAndSet(_ context.Context, req *nativev1.CompareAndS
 }
 
 func (s *StateServer) response(out engine.Outcome) *nativev1.MutationResponse {
+	spec := s.Registry.Spec()
 	if s.Metrics != nil {
-		s.Metrics.SetCommitPosition(s.NamespaceID, out.CommitPosition)
+		s.Metrics.SetCommitPosition(spec.ID, out.CommitPosition)
 	}
 	return &nativev1.MutationResponse{
-		NamespaceId:       s.NamespaceID,
+		NamespaceId:       spec.ID,
 		PartitionId:       0,
 		Epoch:             0,
 		CommitPosition:    out.CommitPosition,
-		DurabilityProfile: s.DurabilityProfile,
+		DurabilityProfile: spec.Profile,
 		Deduplicated:      out.Deduplicated,
 		Version:           out.Version,
 	}
+}
+
+// checkNamespace rejects requests addressed to a namespace this node
+// doesn't serve, explicitly (TR-010), instead of silently operating
+// against whatever namespace_id the client happened to send.
+func checkNamespace(reg *catalog.Registry, namespaceID string) error {
+	if err := reg.Validate(namespaceID); err != nil {
+		return status.Error(codes.NotFound, err.Error())
+	}
+	return nil
 }
