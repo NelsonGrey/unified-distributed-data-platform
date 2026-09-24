@@ -4,6 +4,12 @@
 
 Related: [BRD](BUSINESS_REQUIREMENTS.md) · [TRD](TECHNICAL_REQUIREMENTS.md) · [Validation](TRACEABILITY_AND_VALIDATION.md)
 
+## Implementation status (as of 2026-09-24)
+
+Per bounded context (§2): **Partitioned Data Plane** — implemented, the most complete context by far (`internal/engine`, `internal/wal`, `internal/replication`); `PartitionReplica`/`PartitionEpoch`/`Mutation`/`CommitRecord` all have real counterparts, `Checkpoint` does not (no snapshotting/compaction yet). **Streaming and Consumption** — implemented (`internal/streaming`, `StreamService`); `ConsumerGroup`/`GroupMember`/`LeaseGeneration` are simplified to a single implicit consumer per group name, no membership/lease protocol. **Resource Catalog** — reduced to a single validated `NamespaceSpec` per node (`internal/catalog`), not the multi-tenant `Project`/`ClusterSpec`/`ReleaseChannel` catalog described in §2. **Identity and Governance** — reduced to a shared bearer token and mTLS peer certs (`internal/auth`, `internal/replication`'s transport); no `Tenant`/`Principal`/`Role`/`Policy`/`AuditEvent`. **Operations and Evidence** — reduced to Prometheus metrics and gRPC health (`internal/observability`); no `Incident`/`RunbookExecution`/`EvidenceArtifact` store, though `internal/benchmark` covers part of what `BenchmarkRun` implies. **Cluster Orchestration, Compatibility and Migration, Metering and Entitlements** — not started; none of their aggregates/events exist in code.
+
+The aggregates in §3 and domain services in §4 mostly describe the *Resource Catalog* and *Cluster Orchestration* contexts, which is exactly what's unbuilt — read those sections as design intent, not current behavior. §8's code organization is aspirational for the same reason; see the note after it for what actually exists today.
+
 ## 1. Ubiquitous language
 
 - **Tenant:** security and commercial isolation boundary.
@@ -209,3 +215,29 @@ test/
 ```
 
 Domain packages must not import protocol, database-driver, UI, or cloud-provider packages. Adapters depend inward on application ports. Cross-context workflows use versioned commands/events rather than shared mutable tables.
+
+### Current layout (as of 2026-09-24)
+
+The layout above is the target for when the unbuilt contexts (governance, orchestration, compatibility, evidence, metering) exist. What's actually in the repository today, mapped to the contexts they implement:
+
+```text
+cmd/
+  uddp-node/       # runtime binary
+  uddpctl/         # CLI
+  uddp-bench/      # TR-019 harness CLI
+internal/
+  wal/             # Partitioned Data Plane (storage)
+  engine/          # Partitioned Data Plane (state machine)
+  replication/     # Partitioned Data Plane (replication/consensus) + Identity and Governance (mTLS transport)
+  streaming/       # Streaming and Consumption
+  catalog/         # Resource Catalog (reduced — see status above)
+  auth/            # Identity and Governance (reduced — see status above)
+  observability/   # Operations and Evidence (reduced — see status above)
+  benchmark/       # Operations and Evidence (BenchmarkRun-shaped, TR-019)
+api/
+  native/v1/       # StateService + StreamService proto/generated code
+deploy/
+  kubernetes/      # single-node manifests
+```
+
+No `governance/`, `orchestration/`, `compatibility/`, `evidence/`, `metering/`, `admin/v1/`, or `adapters/` packages exist yet — they map to the bounded contexts marked "not started" above. The `internal/api` package (gRPC service adapters) sits across the native API edge rather than inside a specific context, which the target layout doesn't have a named slot for either.

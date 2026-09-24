@@ -4,6 +4,22 @@
 
 Related: [BRD](BUSINESS_REQUIREMENTS.md) · [DDD](DOMAIN_DRIVEN_DESIGN.md) · [Validation](TRACEABILITY_AND_VALIDATION.md)
 
+## Implementation status (as of 2026-09-24)
+
+Engineering-level status against this document's own components and requirements. See the BRD for the business-facing view and the DDD for domain/bounded-context status.
+
+**Architecture (§1):** the modular monolith/data-node shape is what's built (`cmd/uddp-node`); the "logically separate control plane" doesn't exist yet — cluster topology is static CLI configuration, not a reconciled desired-state system.
+
+**Workload profiles (§3):** `cache` and `durable` are both implemented and namespace-validated (a node refuses to claim `durable` without replication actually running). `strong` remains gated, as specified.
+
+**Components (§4):** 4.1 (API edge) — native gRPC implemented (`StateService`, `StreamService`); no REST admin API, no protocol adapters. 4.2 (control plane) — not implemented. 4.3 (partition runtime) — single fixed partition, epoch/fencing via raft term (not a hand-rolled fencing token), no placement/zone-awareness (there's nothing to place yet — single partition). 4.4 (storage) — memory index + checksummed WAL implemented; no manifest/segment rotation, no compaction (explicitly deferred, see `internal/replication`'s package doc), object storage/backup not implemented. 4.5 (state+log integration) — implemented and tested (this is BR-003's mechanism). 4.6 — not started, as specified (not MVP).
+
+**Security (§7):** TLS + token auth on the client API; mutual TLS between raft nodes (the one place real mTLS workload identity is actually implemented, vs. the bearer token elsewhere). No OIDC, no RBAC, no envelope encryption at rest, no audit log, no threat model review.
+
+**Performance validation (§9):** the harness exists (`uddp-bench`) and captures the fields this section asks for; no qualification run against a fixed/approved environment has happened, so no number from it is a claim yet.
+
+**Delivery slices (§10):** 1 (single-node engine) — done. 2 (replication/consensus/fencing) — done for the data plane (raft via hashicorp/raft, not hand-rolled), with a real but non-exhaustive fault test (leader kill, non-leader rejection); no formal fault harness. 3 (change log/consumers/atomicity/dedup) — done. 4 (control-plane workflows, backup/restore) — only the observability and Kubernetes-packaging pieces are done; control-plane workflows and backup/restore are not. 5 (security/isolation + Redis compat) — TLS/mTLS/auth done; Redis compatibility not started. 6 (Kafka compat) — not started.
+
 ## 1. Architecture objective
 
 Deliver an independently testable state-and-event substrate whose guarantees are explicit and whose failure behavior is observable. The architecture starts as a modular monolith/data-node binary plus a logically separate control plane. Service decomposition is justified by scaling, isolation, or lifecycle evidence—not by a microservices preference.
@@ -84,30 +100,30 @@ Not MVP. Extensions consume versioned partition snapshots/change streams and dec
 
 ## 5. Technical requirements
 
-| ID         | Requirement                                                                                                                                                         | Maps to        |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| UDP-TR-001 | Every acknowledged mutation shall be associated with namespace, partition, epoch, commit position, and profile outcome.                                             | BR-002, BR-003 |
-| UDP-TR-002 | State mutation and its enabled partition-local change record shall commit atomically.                                                                               | BR-003         |
-| UDP-TR-003 | Retries with the same producer/idempotency identity shall not create additional committed mutations within the retention window.                                    | BR-003         |
-| UDP-TR-004 | Partition ownership changes shall use epochs/fencing and shall reject stale writers.                                                                                | BR-002, BR-012 |
-| UDP-TR-005 | Recovery shall validate checksums, manifests, and monotonic commit positions before serving.                                                                        | BR-002, BR-008 |
-| UDP-TR-006 | Backup artifacts shall be encrypted, checksummed, catalogued, restorable to an isolated target, and tied to an evidenced recovery point.                            | BR-008         |
-| UDP-TR-007 | Controllers shall be idempotent and resumable after process loss.                                                                                                   | BR-004         |
-| UDP-TR-008 | Rebalance and upgrade plans shall expose predicted movement, risk, compatibility, and abort boundaries before execution.                                            | BR-004, BR-011 |
-| UDP-TR-009 | Each protocol adapter shall be versioned against an executable compatibility corpus.                                                                                | BR-006         |
-| UDP-TR-010 | Unsupported commands, options, or semantics shall return explicit errors rather than approximate silently.                                                          | BR-006         |
-| UDP-TR-011 | Tenant and namespace authorization shall be enforced at API and internal service boundaries.                                                                        | BR-007         |
-| UDP-TR-012 | Secrets shall use an external secret provider or encrypted store and support rotation without plaintext logging.                                                    | BR-007         |
-| UDP-TR-013 | Audit events shall be append-only, integrity-protected, queryable, and exportable under retention policy.                                                           | BR-007, BR-014 |
-| UDP-TR-014 | Metrics shall include request rate/errors/duration, queueing, replication lag, under-replication, storage/compaction, rebalance, recovery, and resource saturation. | BR-004, BR-012 |
-| UDP-TR-015 | Health shall distinguish ready, degraded, recovering, under-replicated, policy-violating, and unknown.                                                              | BR-012         |
-| UDP-TR-016 | Resource quotas and admission control shall prevent one tenant/namespace from exhausting cluster-wide memory, disk, connections, or execution slots.                | BR-005, BR-007 |
-| UDP-TR-017 | Usage meters shall be deterministic, replayable, versioned, and reconcilable to invoices/estimates.                                                                 | BR-005         |
-| UDP-TR-018 | All persisted and transmitted schemas/formats shall carry versions with forward/backward compatibility rules and migration tests.                                   | BR-011, BR-014 |
-| UDP-TR-019 | The benchmark harness shall capture environment, topology, data, workload, warmup, duration, percentiles, errors, recovery, and cost inputs.                        | BR-010         |
-| UDP-TR-020 | The local runtime shall use the same logical APIs and formats while clearly reporting unsupported distributed behaviors.                                            | BR-001, BR-009 |
-| UDP-TR-021 | Export and deletion jobs shall be asynchronous, idempotent, authorized, audited, and produce completion evidence.                                                   | BR-014         |
-| UDP-TR-022 | Console flows shall support keyboard navigation, non-color status, 200% zoom, and programmatic labels.                                                              | BR-015         |
+| ID         | Requirement                                                                                                                                                         | Maps to        | Status |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- | ------ |
+| UDP-TR-001 | Every acknowledged mutation shall be associated with namespace, partition, epoch, commit position, and profile outcome.                                             | BR-002, BR-003 | Implemented — `MutationResponse` carries all five; epoch is the raft term when replicated, 0 otherwise |
+| UDP-TR-002 | State mutation and its enabled partition-local change record shall commit atomically.                                                                               | BR-003         | Implemented and tested |
+| UDP-TR-003 | Retries with the same producer/idempotency identity shall not create additional committed mutations within the retention window.                                    | BR-003         | Partial — idempotency-key dedup implemented and tested; "retention window" doesn't apply (dedup state isn't pruned/bounded yet) |
+| UDP-TR-004 | Partition ownership changes shall use epochs/fencing and shall reject stale writers.                                                                                | BR-002, BR-012 | Implemented — raft term is the epoch; non-leader/stale-leader writes are rejected, tested live (kill leader, confirm rejection + failover) |
+| UDP-TR-005 | Recovery shall validate checksums, manifests, and monotonic commit positions before serving.                                                                        | BR-002, BR-008 | Partial — checksums and monotonic positions validated and tested (including torn-write and corruption cases); no manifest concept exists (no multi-segment storage yet) |
+| UDP-TR-006 | Backup artifacts shall be encrypted, checksummed, catalogued, restorable to an isolated target, and tied to an evidenced recovery point.                            | BR-008         | Not started |
+| UDP-TR-007 | Controllers shall be idempotent and resumable after process loss.                                                                                                   | BR-004         | Not applicable yet — no controllers exist (no control plane) |
+| UDP-TR-008 | Rebalance and upgrade plans shall expose predicted movement, risk, compatibility, and abort boundaries before execution.                                            | BR-004, BR-011 | Not started |
+| UDP-TR-009 | Each protocol adapter shall be versioned against an executable compatibility corpus.                                                                                | BR-006         | Not started — no adapters |
+| UDP-TR-010 | Unsupported commands, options, or semantics shall return explicit errors rather than approximate silently.                                                          | BR-006         | Partial — applied within what exists (unknown namespace, unsupported profile, wrong-leader writes all fail explicitly, tested); no protocol adapters to apply it to yet |
+| UDP-TR-011 | Tenant and namespace authorization shall be enforced at API and internal service boundaries.                                                                        | BR-007         | Partial — namespace validation enforced and tested; no tenant concept, no per-namespace RBAC (single shared token today) |
+| UDP-TR-012 | Secrets shall use an external secret provider or encrypted store and support rotation without plaintext logging.                                                    | BR-007         | Partial — the auth token and TLS keys are read from files/env vars (not logged), which is the minimum bar; no secret-provider integration or rotation support |
+| UDP-TR-013 | Audit events shall be append-only, integrity-protected, queryable, and exportable under retention policy.                                                           | BR-007, BR-014 | Not started |
+| UDP-TR-014 | Metrics shall include request rate/errors/duration, queueing, replication lag, under-replication, storage/compaction, rebalance, recovery, and resource saturation. | BR-004, BR-012 | Partial, deliberately scoped — request rate/errors/duration and commit position are implemented; replication lag/under-replication/compaction/rebalance/saturation are omitted rather than faked, since the signals they'd need don't exist yet (see `internal/observability`'s package doc) |
+| UDP-TR-015 | Health shall distinguish ready, degraded, recovering, under-replicated, policy-violating, and unknown.                                                              | BR-012         | Partial, deliberately scoped — only ready/not-serving are meaningful today, for the same reason as TR-014; reporting a fake "degraded" would violate this same requirement's spirit |
+| UDP-TR-016 | Resource quotas and admission control shall prevent one tenant/namespace from exhausting cluster-wide memory, disk, connections, or execution slots.                | BR-005, BR-007 | Not started |
+| UDP-TR-017 | Usage meters shall be deterministic, replayable, versioned, and reconcilable to invoices/estimates.                                                                 | BR-005         | Not started |
+| UDP-TR-018 | All persisted and transmitted schemas/formats shall carry versions with forward/backward compatibility rules and migration tests.                                   | BR-011, BR-014 | Not started — the gRPC proto is versioned (`v1`) by convention; no compatibility rules or migration tests exist yet |
+| UDP-TR-019 | The benchmark harness shall capture environment, topology, data, workload, warmup, duration, percentiles, errors, recovery, and cost inputs.                        | BR-010         | Partial — environment, workload, warmup/duration, percentiles, and errors are captured; topology is manual (`--target-note`), recovery-while-loaded and cost inputs aren't captured (see `internal/benchmark`'s package doc) |
+| UDP-TR-020 | The local runtime shall use the same logical APIs and formats while clearly reporting unsupported distributed behaviors.                                            | BR-001, BR-009 | Implemented — single-node and clustered modes share the same API/binary; `durable` is refused outright (not silently degraded) when replication isn't configured |
+| UDP-TR-021 | Export and deletion jobs shall be asynchronous, idempotent, authorized, audited, and produce completion evidence.                                                   | BR-014         | Not started |
+| UDP-TR-022 | Console flows shall support keyboard navigation, non-color status, 200% zoom, and programmatic labels.                                                              | BR-015         | Not applicable yet — no console exists |
 
 ## 6. API sketch
 
@@ -160,9 +176,9 @@ No latency or throughput number is a requirement until a baseline environment is
 
 ## 10. Delivery slices
 
-1. Deterministic single-node engine, WAL, recovery, native API, local tooling.
-2. Partition replication, metadata consensus, fencing, fault harness.
-3. Change log, consumers, state-change atomicity, deduplication.
-4. Control-plane workflows, observability, backup/restore, Kubernetes packaging.
-5. Security/isolation and declared Redis compatibility subset.
-6. Declared Kafka subset and migration tooling, if G1–G3 pass.
+1. Deterministic single-node engine, WAL, recovery, native API, local tooling. — **Done**
+2. Partition replication, metadata consensus, fencing, fault harness. — **Data-plane replication done** (raft via hashicorp/raft, real leader-failure/non-leader-rejection tests); no formal fault harness, no metadata-plane consensus (that's the control plane, still slice 4/not started)
+3. Change log, consumers, state-change atomicity, deduplication. — **Done**
+4. Control-plane workflows, observability, backup/restore, Kubernetes packaging. — **Observability and Kubernetes packaging done**; control-plane workflows and backup/restore not started
+5. Security/isolation and declared Redis compatibility subset. — **TLS/mTLS/auth done**; Redis compatibility not started
+6. Declared Kafka subset and migration tooling, if G1–G3 pass. — Not started (and its own precondition, G1–G3, hasn't formally passed either — see the BRD's gate status)
