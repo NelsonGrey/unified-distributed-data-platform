@@ -1,0 +1,3 @@
+# Require explicit owner review for all repository changes when
+# "Require review from Code Owners" is enabled in branch protection.
+* @mnelson3 @admin-nelsongrey
