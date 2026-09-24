@@ -1,7 +1,8 @@
 // Command uddp-node runs the single-node local development runtime
 // described by BR-001/TR-020: one process serving the native StateService
 // API over a WAL-backed engine, with the same logical API the clustered
-// deployment will use.
+// deployment will use. It can also run as one member of a raft-replicated
+// cluster (delivery slice 2) via --raft-*.
 package main
 
 import (
@@ -15,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -29,6 +31,7 @@ import (
 	"github.com/marknelson/uddp/internal/catalog"
 	"github.com/marknelson/uddp/internal/engine"
 	"github.com/marknelson/uddp/internal/observability"
+	"github.com/marknelson/uddp/internal/replication"
 	"github.com/marknelson/uddp/internal/streaming"
 )
 
@@ -38,15 +41,17 @@ func main() {
 		httpAddr    = flag.String("http-addr", "127.0.0.1:7071", "HTTP listen address for /healthz and /metrics")
 		dataDir     = flag.String("data-dir", "./data", "directory holding the WAL and local state")
 		namespaceID = flag.String("namespace", "default", "namespace served by this single-partition node")
-		// cache is the only profile this single-node build can honestly
-		// report: durable/strong require replica quorum (TRD 4.3), which
-		// doesn't exist until delivery slice 2.
-		profile = flag.String("profile", "cache", "durability profile reported in responses (cache only, until replication ships)")
+		profile     = flag.String("profile", "cache", "durability profile reported in responses (cache always; durable requires --raft-peers)")
 
 		tlsCert = flag.String("tls-cert", "", "path to a PEM-encoded TLS certificate; if empty, the gRPC listener is plaintext (fine for local dev bound to 127.0.0.1, not for anything else)")
 		tlsKey  = flag.String("tls-key", "", "path to the PEM-encoded private key for --tls-cert")
 
 		authToken = flag.String("auth-token", "", "shared bearer token required on every RPC (prefer the UDDP_AUTH_TOKEN env var over this flag, which is visible in the process list); if empty, no authentication is enforced")
+
+		raftID        = flag.String("raft-id", "", "this node's raft server ID (required if --raft-peers is set)")
+		raftAddr      = flag.String("raft-addr", "", "address this node's raft transport listens on (required if --raft-peers is set)")
+		raftPeers     = flag.String("raft-peers", "", "comma-separated id=addr pairs for every node in the cluster, including this one; enables replication when set")
+		raftBootstrap = flag.Bool("raft-bootstrap", false, "form a new cluster from --raft-peers (set on exactly one node, only when first creating the cluster)")
 	)
 	flag.Parse()
 
@@ -54,23 +59,60 @@ func main() {
 		*authToken = os.Getenv("UDDP_AUTH_TOKEN")
 	}
 
-	if err := run(*addr, *httpAddr, *dataDir, *namespaceID, *profile, *tlsCert, *tlsKey, *authToken); err != nil {
+	peers, err := parsePeers(*raftPeers)
+	if err != nil {
+		log.Fatalf("uddp-node: %v", err)
+	}
+
+	if err := run(nodeConfig{
+		addr: *addr, httpAddr: *httpAddr, dataDir: *dataDir, namespaceID: *namespaceID, profile: *profile,
+		tlsCert: *tlsCert, tlsKey: *tlsKey, authToken: *authToken,
+		raftID: *raftID, raftAddr: *raftAddr, raftPeers: peers, raftBootstrap: *raftBootstrap,
+	}); err != nil {
 		log.Fatalf("uddp-node: %v", err)
 	}
 }
 
-func run(addr, httpAddr, dataDir, namespaceID, profile, tlsCert, tlsKey, authToken string) error {
-	spec, err := catalog.NewNamespaceSpec(namespaceID, profile)
+func parsePeers(s string) ([]replication.Peer, error) {
+	if s == "" {
+		return nil, nil
+	}
+	var peers []replication.Peer
+	for _, entry := range strings.Split(s, ",") {
+		parts := strings.SplitN(entry, "=", 2)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return nil, fmt.Errorf("invalid --raft-peers entry %q, want id=addr", entry)
+		}
+		peers = append(peers, replication.Peer{ID: parts[0], Addr: parts[1]})
+	}
+	return peers, nil
+}
+
+type nodeConfig struct {
+	addr, httpAddr, dataDir, namespaceID, profile string
+	tlsCert, tlsKey, authToken                    string
+	raftID, raftAddr                              string
+	raftPeers                                     []replication.Peer
+	raftBootstrap                                 bool
+}
+
+func run(cfg nodeConfig) error {
+	replicationEnabled := len(cfg.raftPeers) > 0
+	if replicationEnabled && (cfg.raftID == "" || cfg.raftAddr == "") {
+		return fmt.Errorf("--raft-id and --raft-addr are required when --raft-peers is set")
+	}
+
+	spec, err := catalog.NewNamespaceSpec(cfg.namespaceID, cfg.profile, replicationEnabled)
 	if err != nil {
 		return err
 	}
 	registry := catalog.NewRegistry(spec)
 
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+	if err := os.MkdirAll(cfg.dataDir, 0o755); err != nil {
 		return err
 	}
-	walPath := filepath.Join(dataDir, "partition-0.wal")
-	offsetsPath := filepath.Join(dataDir, "consumer-offsets.wal")
+	walPath := filepath.Join(cfg.dataDir, "partition-0.wal")
+	offsetsPath := filepath.Join(cfg.dataDir, "consumer-offsets.wal")
 
 	eng, err := engine.Open(walPath, nil)
 	if err != nil {
@@ -84,21 +126,37 @@ func run(addr, httpAddr, dataDir, namespaceID, profile, tlsCert, tlsKey, authTok
 	}
 	defer offsets.Close()
 
+	var replNode *replication.Node
+	if replicationEnabled {
+		replNode, err = replication.Open(eng, replication.Config{
+			ID:        cfg.raftID,
+			BindAddr:  cfg.raftAddr,
+			DataDir:   filepath.Join(cfg.dataDir, "raft"),
+			Bootstrap: cfg.raftBootstrap,
+			Peers:     cfg.raftPeers,
+			LogOutput: os.Stderr,
+		})
+		if err != nil {
+			return fmt.Errorf("start replication: %w", err)
+		}
+		defer replNode.Shutdown()
+	}
+
 	metrics := observability.New()
 
-	lis, err := net.Listen("tcp", addr)
+	lis, err := net.Listen("tcp", cfg.addr)
 	if err != nil {
 		return err
 	}
 
 	var serverOpts []grpc.ServerOption
 
-	tlsEnabled := tlsCert != "" || tlsKey != ""
+	tlsEnabled := cfg.tlsCert != "" || cfg.tlsKey != ""
 	if tlsEnabled {
-		if tlsCert == "" || tlsKey == "" {
+		if cfg.tlsCert == "" || cfg.tlsKey == "" {
 			return fmt.Errorf("both --tls-cert and --tls-key must be set together")
 		}
-		cert, err := tls.LoadX509KeyPair(tlsCert, tlsKey)
+		cert, err := tls.LoadX509KeyPair(cfg.tlsCert, cfg.tlsKey)
 		if err != nil {
 			return fmt.Errorf("load TLS keypair: %w", err)
 		}
@@ -108,8 +166,8 @@ func run(addr, httpAddr, dataDir, namespaceID, profile, tlsCert, tlsKey, authTok
 	}
 
 	interceptors := []grpc.UnaryServerInterceptor{metrics.UnaryServerInterceptor()}
-	if authToken != "" {
-		interceptors = append(interceptors, auth.UnaryServerInterceptor(authToken))
+	if cfg.authToken != "" {
+		interceptors = append(interceptors, auth.UnaryServerInterceptor(cfg.authToken))
 	} else {
 		log.Println("uddp-node: WARNING starting without authentication (--auth-token/UDDP_AUTH_TOKEN not set) — any client can read and write every key")
 	}
@@ -117,9 +175,10 @@ func run(addr, httpAddr, dataDir, namespaceID, profile, tlsCert, tlsKey, authTok
 
 	grpcServer := grpc.NewServer(serverOpts...)
 	nativev1.RegisterStateServiceServer(grpcServer, &internalapi.StateServer{
-		Engine:   eng,
-		Registry: registry,
-		Metrics:  metrics,
+		Engine:      eng,
+		Registry:    registry,
+		Metrics:     metrics,
+		Replication: replNode,
 	})
 	nativev1.RegisterStreamServiceServer(grpcServer, &internalapi.StreamServer{
 		Engine:   eng,
@@ -129,10 +188,11 @@ func run(addr, httpAddr, dataDir, namespaceID, profile, tlsCert, tlsKey, authTok
 
 	// The engine and offset store recovered successfully above, so this
 	// process is ready to serve. TR-015 distinguishes ready/degraded/
-	// recovering/unknown; a single-node process that reaches this line has
-	// no basis to report anything but ready or (on shutdown) not-serving —
-	// degraded/recovering/under-replicated states require replica state
-	// that doesn't exist until delivery slice 2.
+	// recovering/unknown; without replication there's no basis to report
+	// anything but ready or (on shutdown) not-serving. With replication
+	// enabled this still just means "this process is up," not "this node
+	// is the leader" — readers should check StateServer responses/metrics
+	// for that, not health.
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 	healthpb.RegisterHealthServer(grpcServer, healthServer)
@@ -143,7 +203,7 @@ func run(addr, httpAddr, dataDir, namespaceID, profile, tlsCert, tlsKey, authTok
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"ready"}`))
 	})
-	httpServer := &http.Server{Addr: httpAddr, Handler: httpMux}
+	httpServer := &http.Server{Addr: cfg.httpAddr, Handler: httpMux}
 
 	go func() {
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -161,6 +221,7 @@ func run(addr, httpAddr, dataDir, namespaceID, profile, tlsCert, tlsKey, authTok
 		grpcServer.GracefulStop()
 	}()
 
-	log.Printf("uddp-node: serving namespace %q (profile=%s) on %s (grpc, tls=%v) / %s (http), wal=%s", namespaceID, profile, addr, tlsEnabled, httpAddr, walPath)
+	log.Printf("uddp-node: serving namespace %q (profile=%s, replicated=%v) on %s (grpc, tls=%v) / %s (http), wal=%s",
+		cfg.namespaceID, cfg.profile, replicationEnabled, cfg.addr, tlsEnabled, cfg.httpAddr, walPath)
 	return grpcServer.Serve(lis)
 }

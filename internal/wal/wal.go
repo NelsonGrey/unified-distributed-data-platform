@@ -42,6 +42,7 @@ type Record struct {
 type WAL struct {
 	mu   sync.Mutex
 	cond *sync.Cond
+	path string
 	file *os.File
 	w    *bufio.Writer
 	next uint64 // next commit position to assign
@@ -88,9 +89,14 @@ func Open(path string, replay func(Record) error) (*WAL, error) {
 		return nil, fmt.Errorf("wal: seek end: %w", err)
 	}
 
-	w := &WAL{file: f, w: bufio.NewWriter(f), next: next, byteOffsets: byteOffsets, writeOffset: endOffset}
+	w := &WAL{path: path, file: f, w: bufio.NewWriter(f), next: next, byteOffsets: byteOffsets, writeOffset: endOffset}
 	w.cond = sync.NewCond(&w.mu)
 	return w, nil
+}
+
+// Path returns the file path this WAL was opened with.
+func (w *WAL) Path() string {
+	return w.path
 }
 
 // recover_ scans the log from the start, validating each record's checksum

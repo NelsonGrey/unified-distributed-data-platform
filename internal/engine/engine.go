@@ -6,6 +6,7 @@ package engine
 
 import (
 	"errors"
+	"os"
 	"sync"
 	"time"
 
@@ -120,8 +121,29 @@ func (e *Engine) expired(ent *entry) bool {
 }
 
 // Put unconditionally writes key/value, committing atomically to the WAL
-// before making the mutation visible in the index (TRD 4.5).
+// before making the mutation visible in the index (TRD 4.5). ttlSeconds is
+// resolved against this engine's own clock — correct for the single-node,
+// directly-driven path, but NOT safe to call independently on multiple
+// replicas of the same logical write (see ApplyPut).
 func (e *Engine) Put(key, value []byte, ttlSeconds int64, idempotencyKey string) (Outcome, error) {
+	var expiresAtNano int64
+	if ttlSeconds > 0 {
+		expiresAtNano = e.clock.Now().Add(time.Duration(ttlSeconds) * time.Second).UnixNano()
+	}
+	return e.ApplyPut(key, value, expiresAtNano, idempotencyKey)
+}
+
+// ApplyPut is Put with an already-resolved absolute expiry (0 = no
+// expiry) instead of a relative TTL. It exists so a replicated command can
+// carry one expiry timestamp — decided once, by whichever node proposes
+// it — that every replica applies identically. If each replica instead
+// computed "now + ttlSeconds" independently, replicas would disagree
+// (however slightly) on expiry, which is a real determinism violation for
+// a replicated state machine (TRD 2: "deterministic state machines"), not
+// just a cosmetic one — a lagging replica catching up minutes later would
+// compute a materially different expiry than the leader did at proposal
+// time.
+func (e *Engine) ApplyPut(key, value []byte, expiresAtUnixNano int64, idempotencyKey string) (Outcome, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -132,24 +154,21 @@ func (e *Engine) Put(key, value []byte, ttlSeconds int64, idempotencyKey string)
 		}
 	}
 
-	var expiresAt time.Time
-	var expiresAtNano int64
-	if ttlSeconds > 0 {
-		expiresAt = e.clock.Now().Add(time.Duration(ttlSeconds) * time.Second)
-		expiresAtNano = expiresAt.UnixNano()
-	}
-
 	pos, err := e.log.Append(wal.Record{
 		Kind:              wal.KindPut,
 		Key:               key,
 		Value:             value,
-		ExpiresAtUnixNano: expiresAtNano,
+		ExpiresAtUnixNano: expiresAtUnixNano,
 		IdempotencyKey:    idempotencyKey,
 	})
 	if err != nil {
 		return Outcome{}, err
 	}
 
+	var expiresAt time.Time
+	if expiresAtUnixNano > 0 {
+		expiresAt = time.Unix(0, expiresAtUnixNano)
+	}
 	e.index[string(key)] = &entry{value: value, version: pos, expiresAt: expiresAt}
 
 	out := Outcome{CommitPosition: pos, Version: pos}
@@ -192,8 +211,20 @@ func (e *Engine) Delete(key []byte, idempotencyKey string) (Outcome, error) {
 
 // CompareAndSet writes value only if the current version equals
 // expectedVersion (0 meaning "must not exist"). It returns
-// ErrVersionMismatch on conflict without committing anything.
+// ErrVersionMismatch on conflict without committing anything. Like Put,
+// ttlSeconds is resolved against this engine's own clock — see ApplyPut
+// for why that's not safe across independently-applying replicas.
 func (e *Engine) CompareAndSet(key, value []byte, expectedVersion uint64, ttlSeconds int64, idempotencyKey string) (Outcome, error) {
+	var expiresAtNano int64
+	if ttlSeconds > 0 {
+		expiresAtNano = e.clock.Now().Add(time.Duration(ttlSeconds) * time.Second).UnixNano()
+	}
+	return e.ApplyCompareAndSet(key, value, expectedVersion, expiresAtNano, idempotencyKey)
+}
+
+// ApplyCompareAndSet is CompareAndSet with an already-resolved absolute
+// expiry; see ApplyPut.
+func (e *Engine) ApplyCompareAndSet(key, value []byte, expectedVersion uint64, expiresAtUnixNano int64, idempotencyKey string) (Outcome, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -217,24 +248,21 @@ func (e *Engine) CompareAndSet(key, value []byte, expectedVersion uint64, ttlSec
 		return Outcome{}, ErrVersionMismatch
 	}
 
-	var expiresAt time.Time
-	var expiresAtNano int64
-	if ttlSeconds > 0 {
-		expiresAt = e.clock.Now().Add(time.Duration(ttlSeconds) * time.Second)
-		expiresAtNano = expiresAt.UnixNano()
-	}
-
 	pos, err := e.log.Append(wal.Record{
 		Kind:              wal.KindPut,
 		Key:               key,
 		Value:             value,
-		ExpiresAtUnixNano: expiresAtNano,
+		ExpiresAtUnixNano: expiresAtUnixNano,
 		IdempotencyKey:    idempotencyKey,
 	})
 	if err != nil {
 		return Outcome{}, err
 	}
 
+	var expiresAt time.Time
+	if expiresAtUnixNano > 0 {
+		expiresAt = time.Unix(0, expiresAtUnixNano)
+	}
 	e.index[string(key)] = &entry{value: value, version: pos, expiresAt: expiresAt}
 
 	out := Outcome{CommitPosition: pos, Version: pos}
@@ -270,6 +298,64 @@ func (e *Engine) Fetch(from uint64, limit int) ([]ChangeRecord, error) {
 		out[i] = ChangeRecord{Offset: r.CommitPosition, Kind: r.Kind, Key: r.Key, Value: r.Value}
 	}
 	return out, nil
+}
+
+// SnapshotEntry is one live key/value as captured by Snapshot, used by a
+// replication layer to bring a lagging or new replica's engine up to date
+// without replaying the full command history (see internal/replication).
+type SnapshotEntry struct {
+	Key               []byte
+	Value             []byte
+	ExpiresAtUnixNano int64 // 0 = no expiry
+}
+
+// Snapshot returns every key not already expired as of now. It does not
+// include tombstones (deletes) or dedup state — a key absent from the
+// snapshot is simply absent after Reset+reload, which is equivalent to
+// having been deleted or never written.
+func (e *Engine) Snapshot() []SnapshotEntry {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	out := make([]SnapshotEntry, 0, len(e.index))
+	for k, ent := range e.index {
+		if e.expired(ent) {
+			continue
+		}
+		var expiresAtUnixNano int64
+		if !ent.expiresAt.IsZero() {
+			expiresAtUnixNano = ent.expiresAt.UnixNano()
+		}
+		out = append(out, SnapshotEntry{Key: []byte(k), Value: ent.value, ExpiresAtUnixNano: expiresAtUnixNano})
+	}
+	return out
+}
+
+// Reset wipes the engine's state and its underlying WAL file, returning it
+// to the same state as a brand-new Engine opened at this path. It exists
+// for restoring a replica from a snapshot (see internal/replication):
+// after Reset, the caller re-applies snapshot entries via ApplyPut to
+// rebuild state, this time from the snapshot instead of full log replay.
+// Reset is destructive and not part of the normal single-node write path.
+func (e *Engine) Reset() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	path := e.log.Path()
+	if err := e.log.Close(); err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	log, err := wal.Open(path, nil)
+	if err != nil {
+		return err
+	}
+	e.log = log
+	e.index = make(map[string]*entry)
+	e.dedup = make(map[string]Outcome)
+	return nil
 }
 
 // Close releases the underlying WAL file.
