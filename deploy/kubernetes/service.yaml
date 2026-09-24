@@ -1,0 +1,21 @@
+# Headless (ClusterIP: None) because uddp-node is single-instance and
+# unreplicated in this slice — clients address the pod directly via its
+# stable DNS name (uddp-node-0.uddp-node.<namespace>.svc.cluster.local)
+# rather than load-balancing across replicas that don't exist yet.
+apiVersion: v1
+kind: Service
+metadata:
+  name: uddp-node
+  labels:
+    app.kubernetes.io/name: uddp-node
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: uddp-node
+  ports:
+    - name: grpc
+      port: 7070
+      targetPort: grpc
+    - name: http
+      port: 7071
+      targetPort: http

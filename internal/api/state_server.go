@@ -13,6 +13,7 @@ import (
 
 	nativev1 "github.com/marknelson/uddp/api/native/v1"
 	"github.com/marknelson/uddp/internal/engine"
+	"github.com/marknelson/uddp/internal/observability"
 )
 
 // StateServer implements nativev1.StateServiceServer over a single local
@@ -23,6 +24,7 @@ type StateServer struct {
 	Engine            *engine.Engine
 	NamespaceID       string
 	DurabilityProfile string
+	Metrics           *observability.Metrics // optional; nil disables commit-position gauge updates
 }
 
 func (s *StateServer) Get(_ context.Context, req *nativev1.GetRequest) (*nativev1.GetResponse, error) {
@@ -70,6 +72,9 @@ func (s *StateServer) CompareAndSet(_ context.Context, req *nativev1.CompareAndS
 }
 
 func (s *StateServer) response(out engine.Outcome) *nativev1.MutationResponse {
+	if s.Metrics != nil {
+		s.Metrics.SetCommitPosition(s.NamespaceID, out.CommitPosition)
+	}
 	return &nativev1.MutationResponse{
 		NamespaceId:       s.NamespaceID,
 		PartitionId:       0,

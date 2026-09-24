@@ -1,0 +1,67 @@
+# Single-node uddp-node deployment (delivery slice 1/1.5 scope: no
+# replication, so replicas must stay at 1 — a second replica would just be
+# an independent, non-replicated partition, not a copy of the same data).
+# StatefulSet is used for the stable network identity and per-pod PVC it
+# gives the WAL, not for any multi-replica behavior.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: uddp-node
+  labels:
+    app.kubernetes.io/name: uddp-node
+spec:
+  serviceName: uddp-node
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: uddp-node
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: uddp-node
+    spec:
+      securityContext:
+        fsGroup: 65532 # matches distroless:nonroot's uid/gid, so the PVC mount is writable
+      containers:
+        - name: uddp-node
+          image: uddp-node:local # replace with a pushed registry tag before deploying
+          args:
+            - --data-dir=/data
+            - --addr=0.0.0.0:7070
+            - --http-addr=0.0.0.0:7071
+            - --namespace=default
+            - --profile=cache
+          ports:
+            - name: grpc
+              containerPort: 7070
+            - name: http
+              containerPort: 7071
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
