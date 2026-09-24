@@ -1,0 +1,144 @@
+# Business Requirements Document
+
+**Working name:** Unified Distributed Data Platform (UDDP)  
+**Version:** 0.1  
+**Status:** Proposed / discovery  
+**Date:** 2026-09-24  
+**Owner:** Mark Nelson
+
+Related: [TRD](TECHNICAL_REQUIREMENTS.md) · [DDD](DOMAIN_DRIVEN_DESIGN.md) · [Validation](TRACEABILITY_AND_VALIDATION.md) · [Sources](SOURCES_AND_ASSUMPTIONS.md)
+
+## 1. Executive summary
+
+UDDP is a proposed developer-first platform for applications that need low-latency state and durable event streams without operating separate cache and log systems. Its first product slice combines a Redis-shaped key-value on-ramp, a partitioned durable log, workload-level durability profiles, local single-node development, and a unified control plane.
+
+The product must earn expansion. SQL, continuous queries, graph traversal, object-store tiering, active-active multi-region operation, and broad protocol compatibility are staged options—not MVP promises. This corrects the source concept’s largest risk: attempting several mature database categories simultaneously before establishing one defensible workload.
+
+## 2. Customer problem
+
+Teams often assemble caches, event logs, stream processors, databases, and graph systems. The resulting stack duplicates data, security configuration, observability, operational expertise, and failure handling. Existing products already cover many individual and overlapping capabilities, so “multi-model” alone is not differentiation.
+
+The initial problem is narrower: platform teams need a trustworthy shared state-and-event substrate with clear correctness choices, repeatable operations, and cost visibility. They need to know what an acknowledgement means, what can be lost, how failover behaves, and what a migration preserves.
+
+## 3. Product thesis and differentiation
+
+UDDP will compete on:
+
+1. **Explicit workload contracts.** Each namespace selects a small, validated durability/consistency profile with documented acknowledgement, failure, RPO, and recovery semantics.
+2. **One state-and-event identity.** A committed state mutation can emit an ordered change record without a customer-managed dual-write.
+3. **Evidence-first operations.** The console explains replica health, lag, hot partitions, rebalance impact, recovery points, and cost drivers.
+4. **Local-to-managed parity.** The same declarative namespace model works in a single-node developer runtime and clustered deployments, while topology-dependent behavior remains visibly different.
+5. **Compatibility with declared limits.** Redis and Kafka adapters expose published, tested subsets. Unsupported semantics fail clearly; compatibility is never claimed from wire-level acceptance alone.
+
+## 4. Target customers and users
+
+### Beachhead
+
+Small-to-medium platform teams building real-time applications that currently operate both a cache and an event log, especially gaming state, personalization, device/IoT state, operational counters, and fraud-feature pipelines.
+
+### Personas
+
+- Backend engineer: predictable APIs, local development, failure semantics, idiomatic SDKs.
+- Platform engineer/SRE: safe provisioning, upgrades, rebalancing, backup, restore, and capacity evidence.
+- Data engineer: ordered streams, replay, consumer progress, schemas, and export.
+- Security administrator: tenant isolation, least privilege, auditability, key rotation.
+- Engineering leader/FinOps owner: workload cost attribution and migration risk.
+
+## 5. Scope
+
+### MVP
+
+- Single-node local runtime and a three-or-more-node clustered deployment.
+- Namespaced key-value operations: get, put, delete, conditional update, TTL, bounded batch.
+- Partitioned append-only log with producers, consumers, retention, replay, and consumer groups.
+- Atomic state mutation plus change-record publication within one partition.
+- Two initial workload profiles: `cache` and `durable`; a third `strong` profile is gated by consensus validation.
+- Memory hot path plus local durable storage; explicit eviction and recovery behavior.
+- Declarative control plane, CLI, administration API, metrics, traces, audit events, backup and restore.
+- Java and Go SDKs first; protocol adapters are limited compatibility layers.
+- Kubernetes deployment and a local container distribution.
+
+### Post-MVP, gated
+
+- Managed SaaS; additional clouds; active-active regions.
+- SQL/continuous query execution.
+- Graph adjacency and bounded traversal service.
+- Object-store cold tier and analytical snapshots.
+- Additional SDKs, connectors, and compatibility coverage.
+
+### Non-goals for MVP
+
+- Full Redis or Kafka behavioral equivalence.
+- Arbitrary cross-partition ACID transactions.
+- A general-purpose relational database, data warehouse, graph database, or ML platform.
+- User-supplied arbitrary code in the data plane.
+- Unqualified “exactly once,” “sub-millisecond,” “linear scaling,” or “zero downtime” claims.
+- Compliance certification or production SLA before independent evidence exists.
+
+## 6. Business requirements
+
+| ID         | Requirement                                                                                                                                                | Priority | Acceptance evidence                                       |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------: | --------------------------------------------------------- |
+| UDP-BR-001 | A developer shall run the local runtime and complete a state-write/change-stream round trip in 15 minutes using public documentation.                      |     Must | Timed usability study with at least 10 target developers  |
+| UDP-BR-002 | The product shall publish precise acknowledgement, consistency, durability, failover, and data-loss semantics for every workload profile.                  |     Must | Approved semantic contract and fault-injection evidence   |
+| UDP-BR-003 | A state mutation and its change record shall not require an application-managed dual-write when partition-local atomic publication is selected.            |     Must | End-to-end recovery and duplicate-delivery tests          |
+| UDP-BR-004 | Operators shall provision, scale, upgrade, back up, restore, and inspect a cluster through one control plane.                                              |     Must | Scenario-based operator acceptance suite                  |
+| UDP-BR-005 | Customers shall receive per-namespace usage, capacity, and cost-driver reporting.                                                                          |     Must | Billing reconciliation and allocation tests               |
+| UDP-BR-006 | Redis/Kafka migration claims shall name the supported surface, semantic differences, test corpus, and fallback plan.                                       |     Must | Versioned compatibility matrices and migration tests      |
+| UDP-BR-007 | Tenant data, credentials, management actions, and audit records shall be isolated and access-controlled.                                                   |     Must | Threat model, authorization tests, and independent review |
+| UDP-BR-008 | Backup and restore shall be testable without production data and shall report recovery-point and recovery-time evidence.                                   |     Must | Scheduled restore exercises                               |
+| UDP-BR-009 | The MVP shall be independently buildable and testable with owned infrastructure and deterministic workloads; customer recruitment is not a prerequisite.   |     Must | Reproducible local/CI test environment                    |
+| UDP-BR-010 | Public performance and cost claims shall identify hardware, topology, software versions, workload, data set, percentile, duration, and failure conditions. |     Must | Reproducible benchmark package and review                 |
+| UDP-BR-011 | The product shall support rolling maintenance only for combinations proven by an upgrade matrix; unsupported paths shall be blocked.                       |     Must | Upgrade/downgrade qualification report                    |
+| UDP-BR-012 | The product shall surface degraded, recovering, under-replicated, and policy-violating states without converting missing evidence into a healthy status.   |     Must | Fault-injection UI/API acceptance tests                   |
+| UDP-BR-013 | The first commercial release shall serve one validated beachhead workload rather than market itself as a universal replacement.                            |     Must | Approved launch positioning and design-partner evidence   |
+| UDP-BR-014 | Data export and deletion shall be documented, observable, and testable to reduce lock-in and privacy risk.                                                 |   Should | Portability and deletion verification tests               |
+| UDP-BR-015 | Accessibility shall cover the web console’s keyboard use, focus order, contrast, zoom, and non-color status encoding.                                      |     Must | WCAG-oriented accessibility evaluation                    |
+
+## 7. Core journeys
+
+1. **Develop locally:** create a namespace, write state, consume its change stream, simulate restart, inspect recovery.
+2. **Deploy safely:** declare topology and profile, receive a plan, provision, validate health, and obtain a readiness report.
+3. **Migrate:** inventory commands/protocol features, run compatibility analysis, dual-read or shadow traffic, reconcile, cut over, and retain rollback.
+4. **Respond to failure:** identify affected partitions and guarantees, contain, recover, verify, and export evidence.
+5. **Control cost:** attribute RAM, disk, network, retention, and replica usage to namespaces and model changes before applying them.
+
+## 8. Success measures and stage gates
+
+Targets are hypotheses until measured.
+
+- Developer activation: at least 80% of study participants complete the local journey unaided.
+- Correctness: zero acknowledged-write loss outside the published profile contract in the qualified fault matrix.
+- Recoverability: every release candidate completes automated backup restore plus a destructive cluster recovery exercise.
+- Operability: median diagnosis time for the qualified top five incidents is under 15 minutes in operator studies.
+- Compatibility: 100% pass rate for the declared subset; every known semantic deviation is documented.
+- Economics: benchmark cost is reported by workload and SLO, not as one blended price claim.
+
+### Go/no-go gates
+
+- **G0 — thesis:** independently reproduce the state-plus-log value with deterministic workloads.
+- **G1 — substrate:** storage, replication, recovery, and partition-local atomicity pass fault injection.
+- **G2 — operability:** upgrade, rebalance, backup/restore, isolation, and observability pass acceptance suites.
+- **G3 — compatibility:** supported Redis/Kafka subsets and migration rollback are validated.
+- **G4 — limited beta:** one beachhead workload shows better total operational outcome than its current two-system baseline.
+- **G5 — GA:** security review, capacity envelope, support model, and evidence-backed SLA are approved.
+
+## 9. Commercial model
+
+- Open local developer runtime and documented client/protocol specifications.
+- Paid self-managed enterprise distribution may include advanced governance and support.
+- Managed service is post-MVP and separately gated.
+- Pricing should separate reserved memory, durable storage, retained log bytes, operations/throughput, network, and premium support; budget caps and estimators must use the same meters as billing.
+
+No price, savings percentage, or SLA is approved in this document.
+
+## 10. Risks
+
+| Risk                                          | Response                                                                                 |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Scope collapse from building four databases   | Ship KV + log first; require evidence before query/graph expansion                       |
+| Compatibility creates false confidence        | Publish command/feature/semantic matrices; test failures and rollback                    |
+| Per-object policy causes unbounded complexity | Begin with named profiles, not arbitrary combinations                                    |
+| Benchmarks reward synthetic cases             | Publish harness, tail latency, recovery behavior, saturation, and cost                   |
+| Operational burden exceeds incumbents         | Treat day-two workflows as product requirements and release gates                        |
+| Enterprise/security expectations arrive early | Threat-model the MVP; design identity, isolation, audit, and key rotation from inception |
