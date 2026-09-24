@@ -1,6 +1,8 @@
-// Command uddpctl is the local-development CLI (TRD 4.2 "control plane, CLI")
-// scoped to slice 1: point it at a running uddp-node and get/put/delete/cas
-// keys.
+// Command uddpctl is the local-development CLI (TRD 4.2 "control plane, CLI"):
+// point it at a running uddp-node to exercise the KV surface
+// (get/put/delete) and the change stream it produces atomically
+// (fetch/commit-offset/offset), demonstrating BR-003's no-dual-write claim
+// end to end.
 package main
 
 import (
@@ -8,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"google.golang.org/grpc"
@@ -44,6 +47,7 @@ func run(args []string) error {
 	}
 	defer conn.Close()
 	client := nativev1.NewStateServiceClient(conn)
+	streamClient := nativev1.NewStreamServiceClient(conn)
 
 	switch cmd, rest := rest[0], rest[1:]; cmd {
 	case "get":
@@ -83,11 +87,67 @@ func run(args []string) error {
 		fmt.Printf("committed at position %d\n", resp.CommitPosition)
 		return nil
 
+	case "fetch":
+		if len(rest) < 1 || len(rest) > 2 {
+			return fmt.Errorf("usage: uddpctl fetch <from-offset> [max-records]")
+		}
+		from, err := strconv.ParseUint(rest[0], 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid from-offset %q: %w", rest[0], err)
+		}
+		var maxRecords int32 = 100
+		if len(rest) == 2 {
+			n, err := strconv.ParseInt(rest[1], 10, 32)
+			if err != nil {
+				return fmt.Errorf("invalid max-records %q: %w", rest[1], err)
+			}
+			maxRecords = int32(n)
+		}
+		resp, err := streamClient.Fetch(ctx, &nativev1.FetchRequest{NamespaceId: *namespace, FromOffset: from, MaxRecords: maxRecords})
+		if err != nil {
+			return err
+		}
+		for _, r := range resp.Records {
+			fmt.Printf("%d\t%s\t%s=%s\n", r.Offset, r.Kind, r.Key, r.Value)
+		}
+		fmt.Printf("next_offset=%d\n", resp.NextOffset)
+		return nil
+
+	case "commit-offset":
+		if len(rest) != 2 {
+			return fmt.Errorf("usage: uddpctl commit-offset <group> <offset>")
+		}
+		offset, err := strconv.ParseUint(rest[1], 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid offset %q: %w", rest[1], err)
+		}
+		resp, err := streamClient.CommitOffset(ctx, &nativev1.CommitOffsetRequest{NamespaceId: *namespace, ConsumerGroup: rest[0], Offset: offset})
+		if err != nil {
+			return err
+		}
+		fmt.Printf("committed_offset=%d\n", resp.CommittedOffset)
+		return nil
+
+	case "offset":
+		if len(rest) != 1 {
+			return fmt.Errorf("usage: uddpctl offset <group>")
+		}
+		resp, err := streamClient.FetchOffset(ctx, &nativev1.FetchOffsetRequest{NamespaceId: *namespace, ConsumerGroup: rest[0]})
+		if err != nil {
+			return err
+		}
+		if !resp.Found {
+			fmt.Println("(no committed offset)")
+			return nil
+		}
+		fmt.Printf("offset=%d\n", resp.Offset)
+		return nil
+
 	default:
 		return usageError()
 	}
 }
 
 func usageError() error {
-	return fmt.Errorf("usage: uddpctl [--addr host:port] [--namespace id] <get|put|delete> ...")
+	return fmt.Errorf("usage: uddpctl [--addr host:port] [--namespace id] <get|put|delete|fetch|commit-offset|offset> ...")
 }

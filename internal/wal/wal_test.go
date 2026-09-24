@@ -56,6 +56,66 @@ func TestAppendAndReplay(t *testing.T) {
 	}
 }
 
+func TestReadRange(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "range.wal")
+
+	w, err := Open(path, nil)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	for i, k := range []string{"a", "b", "c", "d"} {
+		if _, err := w.Append(Record{Kind: KindPut, Key: []byte(k), Value: []byte{byte(i)}}); err != nil {
+			t.Fatalf("append: %v", err)
+		}
+	}
+
+	recs, err := w.ReadRange(2, 2)
+	if err != nil {
+		t.Fatalf("read range: %v", err)
+	}
+	if len(recs) != 2 || string(recs[0].Key) != "b" || string(recs[1].Key) != "c" {
+		t.Fatalf("unexpected range result: %+v", recs)
+	}
+
+	// Requesting more than remains should return only what's available.
+	recs, err = w.ReadRange(3, 10)
+	if err != nil {
+		t.Fatalf("read range: %v", err)
+	}
+	if len(recs) != 2 || string(recs[0].Key) != "c" || string(recs[1].Key) != "d" {
+		t.Fatalf("unexpected tail range result: %+v", recs)
+	}
+
+	// Requesting past the end of the log returns no records, not an error.
+	recs, err = w.ReadRange(5, 10)
+	if err != nil {
+		t.Fatalf("read range past end: %v", err)
+	}
+	if len(recs) != 0 {
+		t.Fatalf("expected no records past end, got %+v", recs)
+	}
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	// ReadRange must also work against a log rebuilt from recovery, not
+	// just one whose offset index was built purely by Append.
+	w2, err := Open(path, nil)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer w2.Close()
+	recs, err = w2.ReadRange(1, 10)
+	if err != nil {
+		t.Fatalf("read range after reopen: %v", err)
+	}
+	if len(recs) != 4 || string(recs[0].Key) != "a" || string(recs[3].Key) != "d" {
+		t.Fatalf("unexpected post-recovery range result: %+v", recs)
+	}
+}
+
 func TestRecoveryTruncatesTornTail(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "torn.wal")

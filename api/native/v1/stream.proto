@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package uddp.native.v1;
+
+option go_package = "github.com/marknelson/uddp/api/native/v1;nativev1";
+
+// StreamService serves the ordered change stream produced by StateService
+// commits (TRD 4.5) and tracks durable per-consumer-group offsets (DDD
+// Streaming and Consumption). A change record's offset is the same
+// commit_position surfaced in MutationResponse.version — one identity for
+// state and event, no customer-managed dual-write (BR-003).
+service StreamService {
+  rpc Fetch(FetchRequest) returns (FetchResponse);
+  rpc CommitOffset(CommitOffsetRequest) returns (CommitOffsetResponse);
+  rpc FetchOffset(FetchOffsetRequest) returns (FetchOffsetResponse);
+}
+
+enum ChangeKind {
+  CHANGE_KIND_UNSPECIFIED = 0;
+  CHANGE_KIND_PUT = 1;
+  CHANGE_KIND_DELETE = 2;
+}
+
+message ChangeRecord {
+  uint64 offset = 1;
+  ChangeKind kind = 2;
+  bytes key = 3;
+  bytes value = 4; // empty for CHANGE_KIND_DELETE
+}
+
+message FetchRequest {
+  string namespace_id = 1;
+  uint64 from_offset = 2; // inclusive; 0 is invalid (offsets start at 1)
+  int32 max_records = 3;
+}
+
+message FetchResponse {
+  repeated ChangeRecord records = 1;
+  uint64 next_offset = 2; // offset to pass as from_offset on the next call
+}
+
+message CommitOffsetRequest {
+  string namespace_id = 1;
+  string consumer_group = 2;
+  uint64 offset = 3;
+}
+
+message CommitOffsetResponse {
+  uint64 committed_offset = 1;
+}
+
+message FetchOffsetRequest {
+  string namespace_id = 1;
+  string consumer_group = 2;
+}
+
+message FetchOffsetResponse {
+  uint64 offset = 1;
+  bool found = 2;
+}
