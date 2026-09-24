@@ -76,6 +76,24 @@ go run ./cmd/uddpctl --addr=127.0.0.1:17102 put session:2 online   # rejected: n
 
 `--raft-bootstrap` forms the cluster and is set on exactly one node, only when first creating it. `durable` is only accepted when `--raft-peers` is set (`cache` works with or without replication). See `internal/replication`'s package doc for what this covers and what's still deferred (log compaction, multi-partition, read-index linearizable reads).
 
+By default the raft transport between nodes (writes, heartbeats, elections) is plaintext, same caveat as the client-facing API. Secure it with mutual TLS — every node needs its own certificate signed by a shared CA:
+
+```sh
+openssl ecparam -name prime256v1 -genkey -noout -out ca-key.pem
+openssl req -x509 -new -key ca-key.pem -days 365 -out ca.pem -subj "/CN=uddp-raft-ca"
+
+for n in n1 n2 n3; do
+  openssl ecparam -name prime256v1 -genkey -noout -out $n-key.pem
+  openssl req -new -key $n-key.pem -subj "/CN=$n" -out $n.csr
+  openssl x509 -req -in $n.csr -CA ca.pem -CAkey ca-key.pem -CAcreateserial -days 365 \
+    -extfile <(echo "subjectAltName=IP:127.0.0.1") -out $n-cert.pem
+done
+
+go run ./cmd/uddp-node ... --raft-tls-cert=n1-cert.pem --raft-tls-key=n1-key.pem --raft-tls-ca=ca.pem
+```
+
+`--raft-tls-cert`/`--raft-tls-key`/`--raft-tls-ca` are required together. Unlike the client-facing API's bearer token (a deliberately smaller stand-in), this is real mTLS — raft nodes are exactly the small, fixed set of known workload peers TRD §7 has in mind for that mechanism.
+
 ### Performance qualification harness (TR-019)
 
 ```sh
