@@ -35,9 +35,13 @@ type Record struct {
 }
 
 // WAL is a checksummed, append-only, crash-recoverable log. It is safe for
-// concurrent use.
+// concurrent use, and batches concurrent Append calls into a single
+// fsync ("group commit" — see Append) rather than serializing one fsync
+// per call, which is the dominant cost of every write (~ms, vs ~µs for
+// everything else Append does).
 type WAL struct {
 	mu   sync.Mutex
+	cond *sync.Cond
 	file *os.File
 	w    *bufio.Writer
 	next uint64 // next commit position to assign
@@ -47,6 +51,18 @@ type WAL struct {
 	// is how the change stream (TRD 4.5/§4.5 "log offset") is served to
 	// consumers without rescanning from the start on every fetch.
 	byteOffsets []int64
+
+	// Group commit bookkeeping. pendingSeq counts every record buffered so
+	// far (assigned while holding mu, so it's a total order); flushedSeq is
+	// the highest pendingSeq value covered by a completed Flush+Sync. A
+	// caller is durably committed once flushedSeq >= the seq it was
+	// assigned, regardless of whether it or someone else performed the
+	// actual fsync.
+	pendingSeq  uint64
+	flushedSeq  uint64
+	flushErr    error
+	leading     bool
+	writeOffset int64 // logical end of the log, including buffered-but-not-yet-flushed bytes
 }
 
 // Open opens or creates the log at path and replays it, invoking replay for
@@ -66,12 +82,15 @@ func Open(path string, replay func(Record) error) (*WAL, error) {
 		return nil, err
 	}
 
-	if _, err := f.Seek(0, io.SeekEnd); err != nil {
+	endOffset, err := f.Seek(0, io.SeekEnd)
+	if err != nil {
 		f.Close()
 		return nil, fmt.Errorf("wal: seek end: %w", err)
 	}
 
-	return &WAL{file: f, w: bufio.NewWriter(f), next: next, byteOffsets: byteOffsets}, nil
+	w := &WAL{file: f, w: bufio.NewWriter(f), next: next, byteOffsets: byteOffsets, writeOffset: endOffset}
+	w.cond = sync.NewCond(&w.mu)
+	return w, nil
 }
 
 // recover_ scans the log from the start, validating each record's checksum
@@ -228,15 +247,25 @@ func encodePayload(rec Record) []byte {
 	return payload
 }
 
-// Append assigns the next commit position, writes the record durably
-// (fsync before returning), and returns the assigned position. Append
-// serializes concurrent callers to preserve the "per-partition serialized
-// commit ordering" principle from TRD 4.3.
+// Append assigns the next commit position, durably commits the record
+// (fsync before returning), and returns the assigned position. Concurrent
+// callers still see per-partition serialized commit ordering (TRD 4.3):
+// positions are assigned strictly in arrival order under mu. But Append
+// does not give every caller its own fsync — the first caller to find no
+// fsync already in flight becomes the "leader" for a batch, and every
+// other concurrent caller "rides along" on that fsync (or the next one, if
+// they arrive after the leader has already started it) instead of issuing
+// their own. This is the standard WAL group-commit pattern: fsync latency
+// (milliseconds) dominates everything else Append does (microseconds), so
+// batching it is the highest-leverage single change for concurrent
+// throughput. A caller never returns before its own bytes are actually
+// durable — see the flushedSeq bookkeeping below for why that holds even
+// for a follower whose write lands mid-flight.
 func (w *WAL) Append(rec Record) (uint64, error) {
 	w.mu.Lock()
-	defer w.mu.Unlock()
 
 	rec.CommitPosition = w.next
+	w.next++
 	payload := encodePayload(rec)
 	crc := crc32.ChecksumIEEE(payload)
 
@@ -247,28 +276,86 @@ func (w *WAL) Append(rec Record) (uint64, error) {
 	var lenBuf [4]byte
 	binary.LittleEndian.PutUint32(lenBuf[:], uint32(len(body)))
 
-	pos, err := w.file.Seek(0, io.SeekCurrent)
-	if err != nil {
-		return 0, fmt.Errorf("wal: tell: %w", err)
-	}
-	recordOffset := pos + int64(w.w.Buffered())
-
+	recordOffset := w.writeOffset
 	if _, err := w.w.Write(lenBuf[:]); err != nil {
+		w.mu.Unlock()
 		return 0, fmt.Errorf("wal: write length: %w", err)
 	}
 	if _, err := w.w.Write(body); err != nil {
+		w.mu.Unlock()
 		return 0, fmt.Errorf("wal: write body: %w", err)
 	}
-	if err := w.w.Flush(); err != nil {
-		return 0, fmt.Errorf("wal: flush: %w", err)
-	}
-	if err := w.file.Sync(); err != nil {
-		return 0, fmt.Errorf("wal: fsync: %w", err)
+	w.writeOffset += int64(len(lenBuf)) + int64(len(body))
+	w.byteOffsets = append(w.byteOffsets, recordOffset)
+
+	w.pendingSeq++
+	mySeq := w.pendingSeq
+
+	if w.leading {
+		// A flush covering at least up to this point is already guaranteed
+		// (see the leader loop below), so just wait for it.
+		for w.flushedSeq < mySeq {
+			w.cond.Wait()
+		}
+		err := w.flushErr
+		w.mu.Unlock()
+		if err != nil {
+			return 0, err
+		}
+		return rec.CommitPosition, nil
 	}
 
-	w.byteOffsets = append(w.byteOffsets, recordOffset)
-	w.next++
-	return rec.CommitPosition, nil
+	w.leading = true
+	for {
+		flushSeq := w.pendingSeq // everything buffered up to here will be covered by this round
+		if err := w.w.Flush(); err != nil {
+			w.leading = false
+			w.flushErr = fmt.Errorf("wal: flush: %w", err)
+			// Every current waiter is stuck behind this flush and has no
+			// way to know more precisely what got written, so unblock them
+			// all with the error rather than leave them waiting on a
+			// flushedSeq that will never advance.
+			w.flushedSeq = w.pendingSeq
+			w.cond.Broadcast()
+			w.mu.Unlock()
+			return 0, w.flushErr
+		}
+
+		w.mu.Unlock()
+		syncErr := w.file.Sync()
+		w.mu.Lock()
+
+		if syncErr != nil {
+			w.flushErr = fmt.Errorf("wal: fsync: %w", syncErr)
+			// Same reasoning as the Flush()-error path above: unblock
+			// every current waiter, not just the ones this round's
+			// snapshot covered, or anyone who arrived while we were
+			// inside Sync() (mySeq > flushSeq) would wait forever with no
+			// one left leading to cover them.
+			w.flushedSeq = w.pendingSeq
+			w.leading = false
+			w.cond.Broadcast()
+			err := w.flushErr
+			w.mu.Unlock()
+			return 0, err
+		}
+
+		w.flushedSeq = flushSeq
+		w.flushErr = nil
+		w.cond.Broadcast()
+
+		if w.pendingSeq == flushSeq {
+			// Nothing new arrived while we were syncing; step down.
+			w.leading = false
+			w.mu.Unlock()
+			return rec.CommitPosition, nil
+		}
+		// More records were buffered while we were syncing (by followers
+		// who arrived mid-flight, or racing new leaders — but leading is
+		// still true so they queued as followers). Flush again to cover
+		// them before stepping down, rather than leaving a follower
+		// waiting for a leader that never shows up.
+	}
 }
 
 // ReadRange returns up to limit records starting at commit position from
@@ -306,10 +393,16 @@ func (w *WAL) ReadRange(from uint64, limit int) ([]Record, error) {
 	return records, nil
 }
 
-// Close flushes and closes the underlying file.
+// Close flushes and closes the underlying file. It waits for any in-flight
+// group-commit fsync to finish first — that fsync runs without mu held
+// (see Append), so closing the file out from under it would be a real bug,
+// not just a theoretical one.
 func (w *WAL) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	for w.leading {
+		w.cond.Wait()
+	}
 	if err := w.w.Flush(); err != nil {
 		return err
 	}

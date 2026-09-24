@@ -30,6 +30,32 @@ func BenchmarkAppend(b *testing.B) {
 	}
 }
 
+// BenchmarkAppendConcurrent shows the actual point of group commit: unlike
+// BenchmarkAppend (one fsync per call, ~constant ns/op regardless of
+// -cpu), this should show ns/op dropping as concurrency increases, since
+// more concurrent callers share each fsync.
+func BenchmarkAppendConcurrent(b *testing.B) {
+	path := filepath.Join(b.TempDir(), "bench.wal")
+	w, err := Open(path, nil)
+	if err != nil {
+		b.Fatalf("open: %v", err)
+	}
+	defer w.Close()
+
+	value := make([]byte, 256)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		key := []byte("benchmark-key")
+		for pb.Next() {
+			if _, err := w.Append(Record{Kind: KindPut, Key: key, Value: value}); err != nil {
+				b.Fatalf("append: %v", err)
+			}
+		}
+	})
+}
+
 func BenchmarkReadRange(b *testing.B) {
 	path := filepath.Join(b.TempDir(), "bench.wal")
 	w, err := Open(path, nil)
