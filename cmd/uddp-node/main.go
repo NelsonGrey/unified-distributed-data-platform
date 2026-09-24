@@ -52,6 +52,10 @@ func main() {
 		raftAddr      = flag.String("raft-addr", "", "address this node's raft transport listens on (required if --raft-peers is set)")
 		raftPeers     = flag.String("raft-peers", "", "comma-separated id=addr pairs for every node in the cluster, including this one; enables replication when set")
 		raftBootstrap = flag.Bool("raft-bootstrap", false, "form a new cluster from --raft-peers (set on exactly one node, only when first creating the cluster)")
+
+		raftTLSCert = flag.String("raft-tls-cert", "", "this node's certificate for mutual TLS between raft nodes; if empty, inter-node raft traffic is plaintext (fine for local dev, not for a real network)")
+		raftTLSKey  = flag.String("raft-tls-key", "", "private key for --raft-tls-cert")
+		raftTLSCA   = flag.String("raft-tls-ca", "", "CA certificate that signed every node's --raft-tls-cert, used to verify peers in both directions")
 	)
 	flag.Parse()
 
@@ -68,6 +72,7 @@ func main() {
 		addr: *addr, httpAddr: *httpAddr, dataDir: *dataDir, namespaceID: *namespaceID, profile: *profile,
 		tlsCert: *tlsCert, tlsKey: *tlsKey, authToken: *authToken,
 		raftID: *raftID, raftAddr: *raftAddr, raftPeers: peers, raftBootstrap: *raftBootstrap,
+		raftTLSCert: *raftTLSCert, raftTLSKey: *raftTLSKey, raftTLSCA: *raftTLSCA,
 	}); err != nil {
 		log.Fatalf("uddp-node: %v", err)
 	}
@@ -94,6 +99,7 @@ type nodeConfig struct {
 	raftID, raftAddr                              string
 	raftPeers                                     []replication.Peer
 	raftBootstrap                                 bool
+	raftTLSCert, raftTLSKey, raftTLSCA            string
 }
 
 func run(cfg nodeConfig) error {
@@ -128,6 +134,15 @@ func run(cfg nodeConfig) error {
 
 	var replNode *replication.Node
 	if replicationEnabled {
+		var raftTLS *replication.TLSConfig
+		raftTLSFlagsSet := cfg.raftTLSCert != "" || cfg.raftTLSKey != "" || cfg.raftTLSCA != ""
+		if raftTLSFlagsSet {
+			if cfg.raftTLSCert == "" || cfg.raftTLSKey == "" || cfg.raftTLSCA == "" {
+				return fmt.Errorf("--raft-tls-cert, --raft-tls-key, and --raft-tls-ca must be set together")
+			}
+			raftTLS = &replication.TLSConfig{CertFile: cfg.raftTLSCert, KeyFile: cfg.raftTLSKey, PeerCAFile: cfg.raftTLSCA}
+		}
+
 		replNode, err = replication.Open(eng, replication.Config{
 			ID:        cfg.raftID,
 			BindAddr:  cfg.raftAddr,
@@ -135,6 +150,7 @@ func run(cfg nodeConfig) error {
 			Bootstrap: cfg.raftBootstrap,
 			Peers:     cfg.raftPeers,
 			LogOutput: os.Stderr,
+			TLS:       raftTLS,
 		})
 		if err != nil {
 			return fmt.Errorf("start replication: %w", err)

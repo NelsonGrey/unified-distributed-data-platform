@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -38,6 +39,12 @@ type Config struct {
 	Peers        []Peer // the full cluster configuration, required when Bootstrap is true
 	LogOutput    io.Writer
 	ApplyTimeout time.Duration
+
+	// TLS is optional. Unset means the raft transport is plaintext TCP —
+	// fine for local dev/testing (e.g. the cluster_test.go suite), not for
+	// crossing a real network. See TLSConfig's doc for why this is mTLS,
+	// not just server-side TLS.
+	TLS *TLSConfig
 }
 
 // Open starts a raft node over engine, bootstrapping a new cluster if
@@ -76,13 +83,23 @@ func Open(eng *engine.Engine, cfg Config) (*Node, error) {
 		return nil, fmt.Errorf("replication: open snapshot store: %w", err)
 	}
 
-	addr, err := net.ResolveTCPAddr("tcp", cfg.BindAddr)
-	if err != nil {
-		return nil, fmt.Errorf("replication: resolve %s: %w", cfg.BindAddr, err)
-	}
-	transport, err := raft.NewTCPTransport(cfg.BindAddr, addr, 3, 10*time.Second, cfg.LogOutput)
-	if err != nil {
-		return nil, fmt.Errorf("replication: open transport: %w", err)
+	var transport raft.Transport
+	if cfg.TLS != nil {
+		layer, err := newTLSStreamLayer(cfg.BindAddr, *cfg.TLS)
+		if err != nil {
+			return nil, err
+		}
+		transport = raft.NewNetworkTransport(layer, 3, 10*time.Second, cfg.LogOutput)
+	} else {
+		log.Println("replication: WARNING starting raft transport without TLS — inter-node traffic (writes, heartbeats, elections) is plaintext; only safe for local development")
+		addr, err := net.ResolveTCPAddr("tcp", cfg.BindAddr)
+		if err != nil {
+			return nil, fmt.Errorf("replication: resolve %s: %w", cfg.BindAddr, err)
+		}
+		transport, err = raft.NewTCPTransport(cfg.BindAddr, addr, 3, 10*time.Second, cfg.LogOutput)
+		if err != nil {
+			return nil, fmt.Errorf("replication: open transport: %w", err)
+		}
 	}
 
 	r, err := raft.NewRaft(raftConfig, fsm, logStore, logStore, snapshotStore, transport)
