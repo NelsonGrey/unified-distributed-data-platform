@@ -6,25 +6,31 @@ import (
 )
 
 func TestNewNamespaceSpecRejectsUnsupportedProfile(t *testing.T) {
-	if _, err := NewNamespaceSpec("ns1", "durable"); !errors.Is(err, ErrUnsupportedProfile) {
-		t.Fatalf("expected ErrUnsupportedProfile for durable, got %v", err)
-	}
-	if _, err := NewNamespaceSpec("ns1", "strong"); !errors.Is(err, ErrUnsupportedProfile) {
+	if _, err := NewNamespaceSpec("ns1", "strong", true); !errors.Is(err, ErrUnsupportedProfile) {
 		t.Fatalf("expected ErrUnsupportedProfile for strong, got %v", err)
 	}
-	if _, err := NewNamespaceSpec("ns1", "cache"); err != nil {
-		t.Fatalf("expected cache profile to be accepted, got %v", err)
+	if _, err := NewNamespaceSpec("ns1", "cache", false); err != nil {
+		t.Fatalf("expected cache profile to be accepted without replication, got %v", err)
+	}
+}
+
+func TestNewNamespaceSpecDurableRequiresReplication(t *testing.T) {
+	if _, err := NewNamespaceSpec("ns1", "durable", false); !errors.Is(err, ErrUnsupportedProfile) {
+		t.Fatalf("expected durable to be rejected without replication, got %v", err)
+	}
+	if _, err := NewNamespaceSpec("ns1", "durable", true); err != nil {
+		t.Fatalf("expected durable to be accepted with replication enabled, got %v", err)
 	}
 }
 
 func TestNewNamespaceSpecRejectsEmptyID(t *testing.T) {
-	if _, err := NewNamespaceSpec("", "cache"); err == nil {
+	if _, err := NewNamespaceSpec("", "cache", false); err == nil {
 		t.Fatal("expected error for empty namespace id")
 	}
 }
 
 func TestRegistryValidate(t *testing.T) {
-	spec, err := NewNamespaceSpec("default", "cache")
+	spec, err := NewNamespaceSpec("default", "cache", false)
 	if err != nil {
 		t.Fatalf("new spec: %v", err)
 	}

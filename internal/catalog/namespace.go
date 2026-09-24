@@ -22,11 +22,11 @@ var ErrUnsupportedProfile = errors.New("catalog: unsupported workload profile")
 // names a namespace this node doesn't serve.
 var ErrNamespaceNotFound = errors.New("catalog: namespace not found")
 
-// supportedProfiles lists workload profiles this single-node build can
-// honestly serve. durable/strong require replica quorum (TRD 4.3) that
-// doesn't exist until delivery slice 2 — declaring them here without that
-// backing would silently misrepresent the durability contract (BR-002).
-var supportedProfiles = map[string]bool{
+// alwaysSupportedProfiles lists profiles honest to serve regardless of
+// topology. "strong" requires consensus semantics beyond plain quorum
+// replication (linearizable conditional state — TRD 4.3) that aren't
+// implemented yet, so it stays gated even with replication enabled.
+var alwaysSupportedProfiles = map[string]bool{
 	"cache": true,
 }
 
@@ -40,13 +40,23 @@ type NamespaceSpec struct {
 
 // NewNamespaceSpec validates id and profile and returns the resulting
 // spec. It fails fast at startup rather than accepting a namespace this
-// node can't actually back.
-func NewNamespaceSpec(id, profile string) (NamespaceSpec, error) {
+// node can't actually back. replicationEnabled gates the "durable"
+// profile: it requires WAL durability plus replica quorum (TRD 4.3), so
+// declaring it on a node with no replica group would misrepresent the
+// durability contract (BR-002) — this check is what stops that.
+func NewNamespaceSpec(id, profile string, replicationEnabled bool) (NamespaceSpec, error) {
 	if id == "" {
 		return NamespaceSpec{}, fmt.Errorf("catalog: namespace id must not be empty")
 	}
-	if !supportedProfiles[profile] {
-		return NamespaceSpec{}, fmt.Errorf("%w: %q (supported: cache)", ErrUnsupportedProfile, profile)
+	supported := alwaysSupportedProfiles[profile] || (profile == "durable" && replicationEnabled)
+	if !supported {
+		want := "cache"
+		if !replicationEnabled {
+			want = "cache (durable requires replication to be enabled on this node)"
+		} else {
+			want = "cache, durable"
+		}
+		return NamespaceSpec{}, fmt.Errorf("%w: %q (supported: %s)", ErrUnsupportedProfile, profile, want)
 	}
 	return NamespaceSpec{ID: id, Profile: profile}, nil
 }
