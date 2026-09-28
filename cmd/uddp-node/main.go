@@ -33,6 +33,7 @@ import (
 	"github.com/marknelson/uddp/internal/engine"
 	"github.com/marknelson/uddp/internal/observability"
 	"github.com/marknelson/uddp/internal/replication"
+	"github.com/marknelson/uddp/internal/resp"
 	"github.com/marknelson/uddp/internal/streaming"
 )
 
@@ -57,6 +58,8 @@ func main() {
 		raftTLSCert = flag.String("raft-tls-cert", "", "this node's certificate for mutual TLS between raft nodes; if empty, inter-node raft traffic is plaintext (fine for local dev, not for a real network)")
 		raftTLSKey  = flag.String("raft-tls-key", "", "private key for --raft-tls-cert")
 		raftTLSCA   = flag.String("raft-tls-ca", "", "CA certificate that signed every node's --raft-tls-cert, used to verify peers in both directions")
+
+		redisAddr = flag.String("redis-addr", "", "if set, also serve a declared Redis RESP subset (PING/GET/SET/DEL — see docs/REDIS_COMPATIBILITY.md) on this address; no TLS/auth on this listener yet")
 	)
 	flag.Parse()
 
@@ -74,9 +77,17 @@ func main() {
 		tlsCert: *tlsCert, tlsKey: *tlsKey, authToken: *authToken,
 		raftID: *raftID, raftAddr: *raftAddr, raftPeers: peers, raftBootstrap: *raftBootstrap,
 		raftTLSCert: *raftTLSCert, raftTLSKey: *raftTLSKey, raftTLSCA: *raftTLSCA,
+		redisAddr: *redisAddr,
 	}); err != nil {
 		log.Fatalf("uddp-node: %v", err)
 	}
+}
+
+func orNone(s string) string {
+	if s == "" {
+		return "none"
+	}
+	return s
 }
 
 func parsePeers(s string) ([]replication.Peer, error) {
@@ -101,6 +112,7 @@ type nodeConfig struct {
 	raftPeers                                     []replication.Peer
 	raftBootstrap                                 bool
 	raftTLSCert, raftTLSKey, raftTLSCA            string
+	redisAddr                                     string
 }
 
 func run(cfg nodeConfig) error {
@@ -202,9 +214,11 @@ func run(cfg nodeConfig) error {
 		Offsets:  offsets,
 		Registry: registry,
 	})
-	if replNode != nil {
-		adminv1.RegisterAdminServiceServer(grpcServer, &internalapi.AdminServer{Node: replNode})
-	}
+	adminv1.RegisterAdminServiceServer(grpcServer, &internalapi.AdminServer{
+		Engine:   eng,
+		Registry: registry,
+		Node:     replNode, // nil in single-node mode; membership RPCs reject accordingly
+	})
 
 	// The engine and offset store recovered successfully above, so this
 	// process is ready to serve. TR-015 distinguishes ready/degraded/
@@ -231,6 +245,16 @@ func run(cfg nodeConfig) error {
 		}
 	}()
 
+	if cfg.redisAddr != "" {
+		log.Println("uddp-node: WARNING RESP listener has no TLS/auth yet — trusted-network-only")
+		respServer := &resp.Server{Engine: eng}
+		go func() {
+			if err := respServer.ListenAndServe(cfg.redisAddr); err != nil {
+				log.Printf("uddp-node: resp server error: %v", err)
+			}
+		}()
+	}
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -241,7 +265,7 @@ func run(cfg nodeConfig) error {
 		grpcServer.GracefulStop()
 	}()
 
-	log.Printf("uddp-node: serving namespace %q (profile=%s, replicated=%v) on %s (grpc, tls=%v) / %s (http), wal=%s",
-		cfg.namespaceID, cfg.profile, replicationEnabled, cfg.addr, tlsEnabled, cfg.httpAddr, walPath)
+	log.Printf("uddp-node: serving namespace %q (profile=%s, replicated=%v) on %s (grpc, tls=%v) / %s (http) / %s (resp), wal=%s",
+		cfg.namespaceID, cfg.profile, replicationEnabled, cfg.addr, tlsEnabled, cfg.httpAddr, orNone(cfg.redisAddr), walPath)
 	return grpcServer.Serve(lis)
 }

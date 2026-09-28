@@ -67,6 +67,8 @@ What this shows: a `put` on the leader (`n1`) is durably committed to `internal/
 - [Domain-Driven Design](docs/DOMAIN_DRIVEN_DESIGN.md)
 - [Traceability and Validation](docs/TRACEABILITY_AND_VALIDATION.md)
 - [Sources and Assumptions](docs/SOURCES_AND_ASSUMPTIONS.md)
+- [Upgrade Matrix](docs/UPGRADE_MATRIX.md)
+- [Redis Compatibility](docs/REDIS_COMPATIBILITY.md)
 
 ## Status
 
@@ -167,6 +169,28 @@ go run ./cmd/uddpctl --addr=127.0.0.1:17101 remove-node n2
 
 `add-node`/`remove-node`/`list-nodes` must be called against the current leader (same "wrong node" rejection as writes). A newly-added node catches up via full raft log replay, including writes committed before it joined. This is deliberately scoped to membership changes only — BR-004/TR-008's rebalance and upgrade planning (predicted movement, risk, abort boundaries) are a separate, larger piece not built yet; see `AdminService`'s proto doc for the explicit scope boundary. Note also: removing enough voters to break quorum is not currently prevented — there's no safety check yet, so be deliberate about what you remove.
 
+### Backup, restore, export, delete, usage
+
+```sh
+go run ./cmd/uddpctl --addr=127.0.0.1:17101 backup ./backup.dat
+go run ./cmd/uddpctl --addr=127.0.0.1:17101 restore ./backup.dat
+go run ./cmd/uddpctl --addr=127.0.0.1:17101 export
+go run ./cmd/uddpctl --addr=127.0.0.1:17101 usage
+go run ./cmd/uddpctl --addr=127.0.0.1:17101 delete-namespace default   # must name the namespace to confirm
+```
+
+`backup`/`restore` write/read a checksummed, versioned file on the *server's* local filesystem (path is relative to the node process, not your shell) — getting it off that node is on you for now. On a replicated node, `restore` and `delete-namespace` go through raft so every node ends up consistent, not just the one you called. These are starting slices of BR-008/BR-014, not full disaster-recovery or data-portability workflows — see the BRD's status table for what's still missing (encryption, remote targets, pagination, audit trail).
+
+### Redis compatibility (declared subset)
+
+```sh
+go run ./cmd/uddp-node --redis-addr=127.0.0.1:6380 ...
+redis-cli -p 6380 SET foo bar
+redis-cli -p 6380 GET foo
+```
+
+Only `PING`/`GET`/`SET` (with optional `EX`)/`DEL` are implemented; everything else returns an explicit error, never a silent approximation. No TLS/auth on this listener yet. See [docs/REDIS_COMPATIBILITY.md](docs/REDIS_COMPATIBILITY.md) for the full declared subset and what's out of scope.
+
 ### Performance qualification harness (TR-019)
 
 ```sh
@@ -203,6 +227,8 @@ Follows the [DDD](docs/DOMAIN_DRIVEN_DESIGN.md#8-code-organization-guidance) org
 - `internal/replication` — raft-backed partition replication (delivery slice 2): FSM adapting the engine to `raft.FSM`, cluster bootstrap/join/scale, quorum-committed proposals.
 - `api/admin/v1` + admin RPCs in `internal/api` — first control-plane slice (BR-004): live cluster membership (add/remove/list nodes), not the full rebalance/upgrade workflow.
 - `internal/benchmark` — TR-019 performance qualification harness: workload generation, percentile/error/throughput stats, environment capture.
+- `internal/backup` — BR-008/TR-006 backup file format: checksummed, versioned, tied to a recovery point.
+- `internal/resp` — BR-006/TR-009 declared Redis RESP subset (PING/GET/SET/DEL).
 - `api/native/v1` — versioned gRPC API definitions (TRD 6): `StateService` (KV) and `StreamService` (change stream/consumer offsets).
 - `internal/api` — gRPC services adapting the engine to the native API.
 - `cmd/uddp-node` — single-node runtime binary.

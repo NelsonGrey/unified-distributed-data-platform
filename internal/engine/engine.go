@@ -358,6 +358,12 @@ func (e *Engine) Reset() error {
 	return nil
 }
 
+// LastCommitPosition returns the highest commit position assigned so far,
+// used as the recovery-point identifier for backup/restore (TR-006).
+func (e *Engine) LastCommitPosition() uint64 {
+	return e.log.LastCommitPosition()
+}
+
 // Close releases the underlying WAL file.
 func (e *Engine) Close() error {
 	return e.log.Close()

@@ -16,6 +16,8 @@ import (
 	"bytes"
 	"encoding/gob"
 	"fmt"
+
+	"github.com/marknelson/uddp/internal/engine"
 )
 
 // Op identifies which engine mutation a Command applies.
@@ -25,6 +27,17 @@ const (
 	OpPut Op = iota + 1
 	OpDelete
 	OpCompareAndSet
+	// OpWipeAll resets the engine to empty (BR-014 DeleteNamespace). It's
+	// a raft command, not a direct Engine.Reset() call from the admin
+	// layer, specifically so every replica wipes together — a
+	// direct-to-engine wipe on just the leader would desync it from
+	// followers' raft logs, which still reference the wiped data.
+	OpWipeAll
+	// OpLoadSnapshot replaces the engine's state with Entries (BR-008
+	// RestoreBackup), replicated the same way as OpWipeAll and for the
+	// same reason: restoring only the leader's engine out from under a
+	// running raft log would leave followers inconsistent.
+	OpLoadSnapshot
 )
 
 // Command is what gets proposed to Raft and replicated to every node.
@@ -38,6 +51,7 @@ type Command struct {
 	ExpiresAtUnixNano int64
 	ExpectedVersion   uint64 // OpCompareAndSet only
 	IdempotencyKey    string
+	Entries           []engine.SnapshotEntry // OpLoadSnapshot only
 }
 
 func encodeCommand(cmd Command) ([]byte, error) {
