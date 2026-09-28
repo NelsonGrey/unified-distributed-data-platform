@@ -2,6 +2,64 @@
 
 Proposed product and architecture package for an independently buildable distributed data platform. The working thesis is deliberately narrower than “replace Redis, Kafka, Hazelcast, and a graph database at once”: prove a dependable key-value and durable-log substrate first, with one control plane and explicit workload policies; add query and graph capabilities only after feasibility gates pass.
 
+## Demo
+
+This is a real, buildable Go codebase (not just a spec): `go build ./...` and `go test ./...` pass as of this writing, covering `internal/wal`, `internal/engine`, `internal/replication`, `internal/streaming`, `internal/auth`, `internal/catalog`, and `internal/benchmark`. Components not yet implemented (log compaction, multi-partition placement, rebalance/upgrade planning, Redis/Kafka compatibility) are marked "design only" below — see the [Status](#status) section above for the authoritative list.
+
+```mermaid
+flowchart LR
+    subgraph Client
+        ctl[uddpctl CLI]
+    end
+    subgraph "Node n1 (leader)"
+        api1[api/native/v1<br/>StateService / StreamService — implemented]
+        eng1[internal/engine<br/>deterministic state machine — implemented]
+        wal1[internal/wal<br/>checksummed append-only log — implemented]
+        fsm1[internal/replication.FSM<br/>raft.FSM adapter — implemented]
+    end
+    subgraph "Node n2 / n3 (followers)"
+        fsm2[FSM + engine + WAL — implemented]
+    end
+    admin[api/admin/v1 AdminService<br/>add/remove/list-nodes — implemented,<br/>first control-plane slice only]
+    future["multi-partition placement,<br/>rebalance/upgrade planning,<br/>log compaction,<br/>Redis/Kafka adapters<br/>— DESIGN ONLY, not built"]
+
+    ctl -->|gRPC put/get/fetch| api1
+    api1 --> eng1 -->|Apply via raft| fsm1
+    fsm1 -->|raft log replication, mTLS optional| fsm2
+    ctl -.->|add-node/list-nodes| admin
+    admin -.-> fsm1
+    eng1 -. not yet .-> future
+```
+
+Ran locally against a real 3-node `durable`-profile cluster (`go run ./cmd/uddp-node ...` x3, per the [Replicated cluster](#replicated-cluster-durable-profile) instructions below), then drove it with `uddpctl`. Output is captured verbatim, not hand-written:
+
+```
+$ go run ./cmd/uddpctl --addr=127.0.0.1:17101 put session:1 online
+committed at position 1 (profile=durable)
+
+$ go run ./cmd/uddpctl --addr=127.0.0.1:17102 get session:1   # follower n2, after raft replication
+online	(version=1)
+
+$ go run ./cmd/uddpctl --addr=127.0.0.1:17102 put session:2 online   # n2 is a follower, not leader
+uddpctl: rpc error: code = Unavailable desc = put: node is not the leader
+exit status 1
+
+$ go run ./cmd/uddpctl --addr=127.0.0.1:17101 fetch 1   # same commit as the write, no dual-write (BR-003)
+1	CHANGE_KIND_PUT	session:1=online
+next_offset=2
+
+$ go run ./cmd/uddpctl --addr=127.0.0.1:17101 commit-offset my-consumer 1
+committed_offset=1
+
+$ go run ./cmd/uddpctl --addr=127.0.0.1:17101 list-nodes
+leader: n1 (127.0.0.1:18101)
+  n1	127.0.0.1:18101 voter
+  n2	127.0.0.1:18102 voter
+  n3	127.0.0.1:18103 voter
+```
+
+What this shows: a `put` on the leader (`n1`) is durably committed to `internal/wal`, applied to `internal/engine`'s state machine, and replicated via HashiCorp raft (`internal/replication.FSM`) before the follower `n2` can read the same value back — the "replicate, then read" ordering in that transcript is real raft quorum commit, not a race. The `fetch` call returns the same commit as a `CHANGE_KIND_PUT` change-stream entry at the identical position (`1`), which is the "atomic state + change record" claim (BR-003) — one write, no separate dual-write path. `list-nodes` hits `api/admin/v1.AdminService`, the first (and currently only) control-plane slice — see the [Code layout](#code-layout) section for what admin/replication cover versus defer.
+
 ## Documents
 
 - [Business Requirements](docs/BUSINESS_REQUIREMENTS.md)
