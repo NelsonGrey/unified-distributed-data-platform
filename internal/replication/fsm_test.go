@@ -98,3 +98,69 @@ func TestFSMSnapshotAndRestore(t *testing.T) {
 		}
 	}
 }
+
+// TestFSMWipeAll is the FSM-level check backing BR-014 DeleteNamespace:
+// applied through the FSM (as it would be via raft), OpWipeAll must clear
+// all state.
+func TestFSMWipeAll(t *testing.T) {
+	eng, err := engine.Open(filepath.Join(t.TempDir(), "wipe.wal"), nil)
+	if err != nil {
+		t.Fatalf("open engine: %v", err)
+	}
+	defer eng.Close()
+	fsm := &FSM{Engine: eng}
+
+	cmd, _ := encodeCommand(Command{Op: OpPut, Key: []byte("k"), Value: []byte("v")})
+	if r := fsm.Apply(testLog(1, cmd)).(ApplyResult); r.Err != nil {
+		t.Fatalf("apply put: %v", r.Err)
+	}
+
+	wipeCmd, _ := encodeCommand(Command{Op: OpWipeAll})
+	if r := fsm.Apply(testLog(2, wipeCmd)).(ApplyResult); r.Err != nil {
+		t.Fatalf("apply wipe: %v", r.Err)
+	}
+
+	if _, _, found := eng.Get([]byte("k")); found {
+		t.Fatal("expected key to be gone after OpWipeAll")
+	}
+
+	// The engine must still work after a wipe (fresh WAL, not a broken one).
+	if _, err := eng.Put([]byte("after-wipe"), []byte("v"), 0, ""); err != nil {
+		t.Fatalf("put after wipe: %v", err)
+	}
+}
+
+// TestFSMLoadSnapshot is the FSM-level check backing BR-008 RestoreBackup:
+// applied through the FSM, OpLoadSnapshot must replace state entirely,
+// not merge into whatever was there before.
+func TestFSMLoadSnapshot(t *testing.T) {
+	eng, err := engine.Open(filepath.Join(t.TempDir(), "load.wal"), nil)
+	if err != nil {
+		t.Fatalf("open engine: %v", err)
+	}
+	defer eng.Close()
+	fsm := &FSM{Engine: eng}
+
+	cmd, _ := encodeCommand(Command{Op: OpPut, Key: []byte("stale"), Value: []byte("x")})
+	if r := fsm.Apply(testLog(1, cmd)).(ApplyResult); r.Err != nil {
+		t.Fatalf("apply seed put: %v", r.Err)
+	}
+
+	loadCmd, _ := encodeCommand(Command{Op: OpLoadSnapshot, Entries: []engine.SnapshotEntry{
+		{Key: []byte("a"), Value: []byte("1")},
+		{Key: []byte("b"), Value: []byte("2")},
+	}})
+	if r := fsm.Apply(testLog(2, loadCmd)).(ApplyResult); r.Err != nil {
+		t.Fatalf("apply load snapshot: %v", r.Err)
+	}
+
+	if _, _, found := eng.Get([]byte("stale")); found {
+		t.Fatal("expected pre-restore state to be wiped, not merged")
+	}
+	if v, _, found := eng.Get([]byte("a")); !found || string(v) != "1" {
+		t.Fatalf("expected a=1 after load snapshot, got value=%q found=%v", v, found)
+	}
+	if v, _, found := eng.Get([]byte("b")); !found || string(v) != "2" {
+		t.Fatalf("expected b=2 after load snapshot, got value=%q found=%v", v, found)
+	}
+}

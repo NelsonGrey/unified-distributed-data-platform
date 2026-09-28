@@ -47,11 +47,27 @@ func (f *FSM) Apply(log *raft.Log) any {
 		out, err = f.Engine.Delete(cmd.Key, cmd.IdempotencyKey)
 	case OpCompareAndSet:
 		out, err = f.Engine.ApplyCompareAndSet(cmd.Key, cmd.Value, cmd.ExpectedVersion, cmd.ExpiresAtUnixNano, cmd.IdempotencyKey)
+	case OpWipeAll:
+		err = f.Engine.Reset()
+	case OpLoadSnapshot:
+		err = f.loadSnapshot(cmd.Entries)
 	default:
 		err = fmt.Errorf("replication: unknown op %d", cmd.Op)
 	}
 
 	return ApplyResult{Outcome: out, Err: err, Term: log.Term}
+}
+
+func (f *FSM) loadSnapshot(entries []engine.SnapshotEntry) error {
+	if err := f.Engine.Reset(); err != nil {
+		return fmt.Errorf("replication: reset before snapshot load: %w", err)
+	}
+	for _, e := range entries {
+		if _, err := f.Engine.ApplyPut(e.Key, e.Value, e.ExpiresAtUnixNano, ""); err != nil {
+			return fmt.Errorf("replication: load snapshot key %q: %w", e.Key, err)
+		}
+	}
+	return nil
 }
 
 // Snapshot captures the engine's current live state. See the package doc

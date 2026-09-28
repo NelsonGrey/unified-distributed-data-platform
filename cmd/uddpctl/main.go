@@ -198,9 +198,71 @@ func run(args []string) error {
 		printCluster(resp.Cluster)
 		return nil
 
+	case "backup":
+		if len(rest) != 1 {
+			return fmt.Errorf("usage: uddpctl backup <path>")
+		}
+		resp, err := adminClient.CreateBackup(ctx, &adminv1.CreateBackupRequest{Path: rest[0]})
+		if err != nil {
+			return err
+		}
+		printBackupInfo(resp.Backup)
+		return nil
+
+	case "restore":
+		if len(rest) != 1 {
+			return fmt.Errorf("usage: uddpctl restore <path>")
+		}
+		resp, err := adminClient.RestoreBackup(ctx, &adminv1.RestoreBackupRequest{Path: rest[0]})
+		if err != nil {
+			return err
+		}
+		printBackupInfo(resp.Backup)
+		return nil
+
+	case "export":
+		if len(rest) != 0 {
+			return fmt.Errorf("usage: uddpctl export")
+		}
+		resp, err := adminClient.ExportNamespace(ctx, &adminv1.ExportNamespaceRequest{})
+		if err != nil {
+			return err
+		}
+		for _, e := range resp.Entries {
+			fmt.Printf("%s=%s\n", e.Key, e.Value)
+		}
+		return nil
+
+	case "delete-namespace":
+		if len(rest) != 1 {
+			return fmt.Errorf("usage: uddpctl delete-namespace <namespace-id-to-confirm>")
+		}
+		resp, err := adminClient.DeleteNamespace(ctx, &adminv1.DeleteNamespaceRequest{ConfirmNamespaceId: rest[0]})
+		if err != nil {
+			return err
+		}
+		fmt.Printf("deleted %d entries\n", resp.EntriesDeleted)
+		return nil
+
+	case "usage":
+		if len(rest) != 0 {
+			return fmt.Errorf("usage: uddpctl usage")
+		}
+		resp, err := adminClient.GetUsage(ctx, &adminv1.GetUsageRequest{})
+		if err != nil {
+			return err
+		}
+		fmt.Printf("namespace=%s key_count=%d approx_bytes=%d\n", resp.NamespaceId, resp.KeyCount, resp.ApproxBytes)
+		return nil
+
 	default:
 		return usageError()
 	}
+}
+
+func printBackupInfo(b *adminv1.BackupInfo) {
+	fmt.Printf("namespace=%s recovery_point=%d entries=%d created_at=%s sha256=%s\n",
+		b.NamespaceId, b.RecoveryPoint, b.EntryCount, b.CreatedAt, b.Sha256Entries)
 }
 
 func printCluster(c *adminv1.Cluster) {
@@ -215,7 +277,7 @@ func printCluster(c *adminv1.Cluster) {
 }
 
 func usageError() error {
-	return fmt.Errorf("usage: uddpctl [--addr host:port] [--namespace id] [--tls] [--tls-ca file] [--insecure-skip-verify] [--token t] <get|put|delete|fetch|commit-offset|offset|add-node|remove-node|list-nodes> ...")
+	return fmt.Errorf("usage: uddpctl [--addr host:port] [--namespace id] [--tls] [--tls-ca file] [--insecure-skip-verify] [--token t] <get|put|delete|fetch|commit-offset|offset|add-node|remove-node|list-nodes|backup|restore|export|delete-namespace|usage> ...")
 }
 
 func dialCredentials(useTLS bool, caPath string, insecureSkipVerify bool) (credentials.TransportCredentials, error) {

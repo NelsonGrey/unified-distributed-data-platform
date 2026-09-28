@@ -19,30 +19,57 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AdminService_AddNode_FullMethodName    = "/uddp.admin.v1.AdminService/AddNode"
-	AdminService_RemoveNode_FullMethodName = "/uddp.admin.v1.AdminService/RemoveNode"
-	AdminService_ListNodes_FullMethodName  = "/uddp.admin.v1.AdminService/ListNodes"
+	AdminService_AddNode_FullMethodName         = "/uddp.admin.v1.AdminService/AddNode"
+	AdminService_RemoveNode_FullMethodName      = "/uddp.admin.v1.AdminService/RemoveNode"
+	AdminService_ListNodes_FullMethodName       = "/uddp.admin.v1.AdminService/ListNodes"
+	AdminService_CreateBackup_FullMethodName    = "/uddp.admin.v1.AdminService/CreateBackup"
+	AdminService_RestoreBackup_FullMethodName   = "/uddp.admin.v1.AdminService/RestoreBackup"
+	AdminService_ExportNamespace_FullMethodName = "/uddp.admin.v1.AdminService/ExportNamespace"
+	AdminService_DeleteNamespace_FullMethodName = "/uddp.admin.v1.AdminService/DeleteNamespace"
+	AdminService_GetUsage_FullMethodName        = "/uddp.admin.v1.AdminService/GetUsage"
 )
 
 // AdminServiceClient is the client API for AdminService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// AdminService is the first real slice of the control plane (BRD BR-004,
-// TRD TR-007/TR-008): live cluster membership management. Before this,
-// cluster membership was fixed at process start via --raft-peers, with no
-// operator workflow to change it. Scoped deliberately narrow — this is
-// membership changes only, not the full PlacementPlanner/RebalancePlan/
-// UpgradePlan machinery the DDD's Cluster Orchestration context
-// describes, which stays deferred until this slice earns it.
+// AdminService is the control plane's admin surface, covering several
+// BR-*/TR-* requirements at a deliberately minimal "started, not complete"
+// level each — see this repo's docs/BUSINESS_REQUIREMENTS.md and
+// docs/TECHNICAL_REQUIREMENTS.md status tables for exactly what's covered
+// versus deferred per requirement.
 //
-// Every RPC here must be called against the current raft leader; a
-// non-leader returns UNAVAILABLE naming the leader if known, the same
-// pattern StateService already uses for writes.
+// Cluster membership (AddNode/RemoveNode/ListNodes) requires replication
+// to be enabled on this node (FAILED_PRECONDITION otherwise) and, like
+// StateService writes, must be called against the current raft leader
+// (UNAVAILABLE naming the leader if known, otherwise). Backup/restore/
+// export/delete/usage work whether or not replication is enabled; when it
+// is, mutating operations (RestoreBackup, DeleteNamespace) are replicated
+// through raft so every node's state stays consistent, not just the
+// leader's.
 type AdminServiceClient interface {
 	AddNode(ctx context.Context, in *AddNodeRequest, opts ...grpc.CallOption) (*AddNodeResponse, error)
 	RemoveNode(ctx context.Context, in *RemoveNodeRequest, opts ...grpc.CallOption) (*RemoveNodeResponse, error)
 	ListNodes(ctx context.Context, in *ListNodesRequest, opts ...grpc.CallOption) (*ListNodesResponse, error)
+	// CreateBackup and RestoreBackup write/read a local filesystem path on
+	// this node — BR-008's starting slice. Getting the resulting file off
+	// this node (to object storage, etc.) is the operator's job for now;
+	// that handoff isn't automated yet.
+	CreateBackup(ctx context.Context, in *CreateBackupRequest, opts ...grpc.CallOption) (*CreateBackupResponse, error)
+	RestoreBackup(ctx context.Context, in *RestoreBackupRequest, opts ...grpc.CallOption) (*RestoreBackupResponse, error)
+	// ExportNamespace and DeleteNamespace are BR-014's starting slice:
+	// customer-facing data portability and deletion, distinct in intent
+	// from CreateBackup/RestoreBackup (operator disaster recovery) even
+	// though the underlying data is the same. There is exactly one
+	// namespace per node in this build, so these act on "the" namespace
+	// this node serves, not a namespace selected from many.
+	ExportNamespace(ctx context.Context, in *ExportNamespaceRequest, opts ...grpc.CallOption) (*ExportNamespaceResponse, error)
+	DeleteNamespace(ctx context.Context, in *DeleteNamespaceRequest, opts ...grpc.CallOption) (*DeleteNamespaceResponse, error)
+	// GetUsage is BR-005's starting slice: key count and approximate
+	// storage bytes for the namespace. Not cost/billing-shaped yet (no
+	// meter definitions, no reconciliation, no time series) — see BR-005's
+	// status note in the BRD.
+	GetUsage(ctx context.Context, in *GetUsageRequest, opts ...grpc.CallOption) (*GetUsageResponse, error)
 }
 
 type adminServiceClient struct {
@@ -83,25 +110,97 @@ func (c *adminServiceClient) ListNodes(ctx context.Context, in *ListNodesRequest
 	return out, nil
 }
 
+func (c *adminServiceClient) CreateBackup(ctx context.Context, in *CreateBackupRequest, opts ...grpc.CallOption) (*CreateBackupResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateBackupResponse)
+	err := c.cc.Invoke(ctx, AdminService_CreateBackup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) RestoreBackup(ctx context.Context, in *RestoreBackupRequest, opts ...grpc.CallOption) (*RestoreBackupResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RestoreBackupResponse)
+	err := c.cc.Invoke(ctx, AdminService_RestoreBackup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) ExportNamespace(ctx context.Context, in *ExportNamespaceRequest, opts ...grpc.CallOption) (*ExportNamespaceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExportNamespaceResponse)
+	err := c.cc.Invoke(ctx, AdminService_ExportNamespace_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) DeleteNamespace(ctx context.Context, in *DeleteNamespaceRequest, opts ...grpc.CallOption) (*DeleteNamespaceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteNamespaceResponse)
+	err := c.cc.Invoke(ctx, AdminService_DeleteNamespace_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) GetUsage(ctx context.Context, in *GetUsageRequest, opts ...grpc.CallOption) (*GetUsageResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetUsageResponse)
+	err := c.cc.Invoke(ctx, AdminService_GetUsage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService service.
 // All implementations must embed UnimplementedAdminServiceServer
 // for forward compatibility.
 //
-// AdminService is the first real slice of the control plane (BRD BR-004,
-// TRD TR-007/TR-008): live cluster membership management. Before this,
-// cluster membership was fixed at process start via --raft-peers, with no
-// operator workflow to change it. Scoped deliberately narrow — this is
-// membership changes only, not the full PlacementPlanner/RebalancePlan/
-// UpgradePlan machinery the DDD's Cluster Orchestration context
-// describes, which stays deferred until this slice earns it.
+// AdminService is the control plane's admin surface, covering several
+// BR-*/TR-* requirements at a deliberately minimal "started, not complete"
+// level each — see this repo's docs/BUSINESS_REQUIREMENTS.md and
+// docs/TECHNICAL_REQUIREMENTS.md status tables for exactly what's covered
+// versus deferred per requirement.
 //
-// Every RPC here must be called against the current raft leader; a
-// non-leader returns UNAVAILABLE naming the leader if known, the same
-// pattern StateService already uses for writes.
+// Cluster membership (AddNode/RemoveNode/ListNodes) requires replication
+// to be enabled on this node (FAILED_PRECONDITION otherwise) and, like
+// StateService writes, must be called against the current raft leader
+// (UNAVAILABLE naming the leader if known, otherwise). Backup/restore/
+// export/delete/usage work whether or not replication is enabled; when it
+// is, mutating operations (RestoreBackup, DeleteNamespace) are replicated
+// through raft so every node's state stays consistent, not just the
+// leader's.
 type AdminServiceServer interface {
 	AddNode(context.Context, *AddNodeRequest) (*AddNodeResponse, error)
 	RemoveNode(context.Context, *RemoveNodeRequest) (*RemoveNodeResponse, error)
 	ListNodes(context.Context, *ListNodesRequest) (*ListNodesResponse, error)
+	// CreateBackup and RestoreBackup write/read a local filesystem path on
+	// this node — BR-008's starting slice. Getting the resulting file off
+	// this node (to object storage, etc.) is the operator's job for now;
+	// that handoff isn't automated yet.
+	CreateBackup(context.Context, *CreateBackupRequest) (*CreateBackupResponse, error)
+	RestoreBackup(context.Context, *RestoreBackupRequest) (*RestoreBackupResponse, error)
+	// ExportNamespace and DeleteNamespace are BR-014's starting slice:
+	// customer-facing data portability and deletion, distinct in intent
+	// from CreateBackup/RestoreBackup (operator disaster recovery) even
+	// though the underlying data is the same. There is exactly one
+	// namespace per node in this build, so these act on "the" namespace
+	// this node serves, not a namespace selected from many.
+	ExportNamespace(context.Context, *ExportNamespaceRequest) (*ExportNamespaceResponse, error)
+	DeleteNamespace(context.Context, *DeleteNamespaceRequest) (*DeleteNamespaceResponse, error)
+	// GetUsage is BR-005's starting slice: key count and approximate
+	// storage bytes for the namespace. Not cost/billing-shaped yet (no
+	// meter definitions, no reconciliation, no time series) — see BR-005's
+	// status note in the BRD.
+	GetUsage(context.Context, *GetUsageRequest) (*GetUsageResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -120,6 +219,21 @@ func (UnimplementedAdminServiceServer) RemoveNode(context.Context, *RemoveNodeRe
 }
 func (UnimplementedAdminServiceServer) ListNodes(context.Context, *ListNodesRequest) (*ListNodesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListNodes not implemented")
+}
+func (UnimplementedAdminServiceServer) CreateBackup(context.Context, *CreateBackupRequest) (*CreateBackupResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateBackup not implemented")
+}
+func (UnimplementedAdminServiceServer) RestoreBackup(context.Context, *RestoreBackupRequest) (*RestoreBackupResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RestoreBackup not implemented")
+}
+func (UnimplementedAdminServiceServer) ExportNamespace(context.Context, *ExportNamespaceRequest) (*ExportNamespaceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ExportNamespace not implemented")
+}
+func (UnimplementedAdminServiceServer) DeleteNamespace(context.Context, *DeleteNamespaceRequest) (*DeleteNamespaceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteNamespace not implemented")
+}
+func (UnimplementedAdminServiceServer) GetUsage(context.Context, *GetUsageRequest) (*GetUsageResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetUsage not implemented")
 }
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
 func (UnimplementedAdminServiceServer) testEmbeddedByValue()                      {}
@@ -196,6 +310,96 @@ func _AdminService_ListNodes_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_CreateBackup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateBackupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).CreateBackup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_CreateBackup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).CreateBackup(ctx, req.(*CreateBackupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_RestoreBackup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RestoreBackupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RestoreBackup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_RestoreBackup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RestoreBackup(ctx, req.(*RestoreBackupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_ExportNamespace_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExportNamespaceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ExportNamespace(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_ExportNamespace_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ExportNamespace(ctx, req.(*ExportNamespaceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_DeleteNamespace_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteNamespaceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).DeleteNamespace(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_DeleteNamespace_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).DeleteNamespace(ctx, req.(*DeleteNamespaceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_GetUsage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetUsageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).GetUsage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_GetUsage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).GetUsage(ctx, req.(*GetUsageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -214,6 +418,26 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListNodes",
 			Handler:    _AdminService_ListNodes_Handler,
+		},
+		{
+			MethodName: "CreateBackup",
+			Handler:    _AdminService_CreateBackup_Handler,
+		},
+		{
+			MethodName: "RestoreBackup",
+			Handler:    _AdminService_RestoreBackup_Handler,
+		},
+		{
+			MethodName: "ExportNamespace",
+			Handler:    _AdminService_ExportNamespace_Handler,
+		},
+		{
+			MethodName: "DeleteNamespace",
+			Handler:    _AdminService_DeleteNamespace_Handler,
+		},
+		{
+			MethodName: "GetUsage",
+			Handler:    _AdminService_GetUsage_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

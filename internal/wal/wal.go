@@ -14,6 +14,19 @@ import (
 	"sync"
 )
 
+// File format header: a 4-byte magic plus a 1-byte format version, written
+// once when a WAL file is created and validated on every Open thereafter.
+// This is the starting point for TR-011/TR-018 ("unsupported paths shall
+// be blocked" / "schemas... shall carry versions"): today there is
+// exactly one supported version and no migration path between versions —
+// a mismatch is an explicit, loud error rather than an attempt to read a
+// format this code doesn't understand.
+var walMagic = [4]byte{'U', 'D', 'W', 'L'}
+
+const currentFormatVersion = 1
+
+const headerSize = 5 // magic + version byte
+
 // RecordKind distinguishes mutation types recorded in the log.
 type RecordKind uint8
 
@@ -77,6 +90,11 @@ func Open(path string, replay func(Record) error) (*WAL, error) {
 		return nil, fmt.Errorf("wal: open %s: %w", path, err)
 	}
 
+	if err := ensureHeader(f); err != nil {
+		f.Close()
+		return nil, err
+	}
+
 	next, byteOffsets, err := recover_(f, replay)
 	if err != nil {
 		f.Close()
@@ -99,13 +117,51 @@ func (w *WAL) Path() string {
 	return w.path
 }
 
-// recover_ scans the log from the start, validating each record's checksum
-// and enforcing monotonic commit positions. It returns the next commit
-// position to assign and the byte offset of every valid record found.
+// ensureHeader writes the format header to a freshly created (empty) file,
+// or validates it against an existing one. A version mismatch is a hard
+// error — TR-011/TR-018 ("unsupported paths shall be blocked" rather than
+// silently approximated).
+func ensureHeader(f *os.File) error {
+	fi, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("wal: stat: %w", err)
+	}
+
+	if fi.Size() == 0 {
+		header := append(append([]byte{}, walMagic[:]...), currentFormatVersion)
+		if _, err := f.WriteAt(header, 0); err != nil {
+			return fmt.Errorf("wal: write header: %w", err)
+		}
+		if err := f.Sync(); err != nil {
+			return fmt.Errorf("wal: sync header: %w", err)
+		}
+		return nil
+	}
+
+	header := make([]byte, headerSize)
+	if _, err := f.ReadAt(header, 0); err != nil {
+		return fmt.Errorf("wal: read header: %w", err)
+	}
+	if [4]byte(header[:4]) != walMagic {
+		return fmt.Errorf("wal: not a uddp WAL file (bad magic)")
+	}
+	if version := header[4]; version != currentFormatVersion {
+		return fmt.Errorf("wal: unsupported format version %d (this build supports version %d only, and has no upgrade path between versions yet)", version, currentFormatVersion)
+	}
+	return nil
+}
+
+// recover_ scans the log (after the format header) validating each
+// record's checksum and enforcing monotonic commit positions. It returns
+// the next commit position to assign and the byte offset of every valid
+// record found.
 func recover_(f *os.File, replay func(Record) error) (uint64, []int64, error) {
+	if _, err := f.Seek(headerSize, io.SeekStart); err != nil {
+		return 0, nil, fmt.Errorf("wal: seek past header: %w", err)
+	}
 	r := bufio.NewReader(f)
 	var next uint64 = 1
-	var offset int64
+	var offset int64 = headerSize
 	var byteOffsets []int64
 
 	for {
@@ -397,6 +453,15 @@ func (w *WAL) ReadRange(from uint64, limit int) ([]Record, error) {
 		records = append(records, *rec)
 	}
 	return records, nil
+}
+
+// LastCommitPosition returns the highest commit position assigned so far
+// (0 if the log is empty), used as the backup/restore recovery-point
+// identifier (TR-006).
+func (w *WAL) LastCommitPosition() uint64 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.next - 1
 }
 
 // Close flushes and closes the underlying file. It waits for any in-flight

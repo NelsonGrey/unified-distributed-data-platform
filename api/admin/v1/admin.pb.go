@@ -405,6 +405,585 @@ func (x *Node) GetIsVoter() bool {
 	return false
 }
 
+type CreateBackupRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"` // local filesystem path on this node to write the backup file to
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateBackupRequest) Reset() {
+	*x = CreateBackupRequest{}
+	mi := &file_api_admin_v1_admin_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateBackupRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateBackupRequest) ProtoMessage() {}
+
+func (x *CreateBackupRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_admin_v1_admin_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateBackupRequest.ProtoReflect.Descriptor instead.
+func (*CreateBackupRequest) Descriptor() ([]byte, []int) {
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *CreateBackupRequest) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+type CreateBackupResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Backup        *BackupInfo            `protobuf:"bytes,1,opt,name=backup,proto3" json:"backup,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateBackupResponse) Reset() {
+	*x = CreateBackupResponse{}
+	mi := &file_api_admin_v1_admin_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateBackupResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateBackupResponse) ProtoMessage() {}
+
+func (x *CreateBackupResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_admin_v1_admin_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateBackupResponse.ProtoReflect.Descriptor instead.
+func (*CreateBackupResponse) Descriptor() ([]byte, []int) {
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *CreateBackupResponse) GetBackup() *BackupInfo {
+	if x != nil {
+		return x.Backup
+	}
+	return nil
+}
+
+type RestoreBackupRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"` // local filesystem path on this node to read the backup file from
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RestoreBackupRequest) Reset() {
+	*x = RestoreBackupRequest{}
+	mi := &file_api_admin_v1_admin_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RestoreBackupRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RestoreBackupRequest) ProtoMessage() {}
+
+func (x *RestoreBackupRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_admin_v1_admin_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RestoreBackupRequest.ProtoReflect.Descriptor instead.
+func (*RestoreBackupRequest) Descriptor() ([]byte, []int) {
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *RestoreBackupRequest) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+type RestoreBackupResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Backup        *BackupInfo            `protobuf:"bytes,1,opt,name=backup,proto3" json:"backup,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RestoreBackupResponse) Reset() {
+	*x = RestoreBackupResponse{}
+	mi := &file_api_admin_v1_admin_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RestoreBackupResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RestoreBackupResponse) ProtoMessage() {}
+
+func (x *RestoreBackupResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_admin_v1_admin_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RestoreBackupResponse.ProtoReflect.Descriptor instead.
+func (*RestoreBackupResponse) Descriptor() ([]byte, []int) {
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *RestoreBackupResponse) GetBackup() *BackupInfo {
+	if x != nil {
+		return x.Backup
+	}
+	return nil
+}
+
+type BackupInfo struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NamespaceId   string                 `protobuf:"bytes,1,opt,name=namespace_id,json=namespaceId,proto3" json:"namespace_id,omitempty"`
+	RecoveryPoint uint64                 `protobuf:"varint,2,opt,name=recovery_point,json=recoveryPoint,proto3" json:"recovery_point,omitempty"` // the commit position the backup represents
+	EntryCount    int32                  `protobuf:"varint,3,opt,name=entry_count,json=entryCount,proto3" json:"entry_count,omitempty"`
+	CreatedAt     string                 `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"` // RFC 3339
+	Sha256Entries string                 `protobuf:"bytes,5,opt,name=sha256_entries,json=sha256Entries,proto3" json:"sha256_entries,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BackupInfo) Reset() {
+	*x = BackupInfo{}
+	mi := &file_api_admin_v1_admin_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BackupInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BackupInfo) ProtoMessage() {}
+
+func (x *BackupInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_api_admin_v1_admin_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BackupInfo.ProtoReflect.Descriptor instead.
+func (*BackupInfo) Descriptor() ([]byte, []int) {
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *BackupInfo) GetNamespaceId() string {
+	if x != nil {
+		return x.NamespaceId
+	}
+	return ""
+}
+
+func (x *BackupInfo) GetRecoveryPoint() uint64 {
+	if x != nil {
+		return x.RecoveryPoint
+	}
+	return 0
+}
+
+func (x *BackupInfo) GetEntryCount() int32 {
+	if x != nil {
+		return x.EntryCount
+	}
+	return 0
+}
+
+func (x *BackupInfo) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
+func (x *BackupInfo) GetSha256Entries() string {
+	if x != nil {
+		return x.Sha256Entries
+	}
+	return ""
+}
+
+type ExportNamespaceRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExportNamespaceRequest) Reset() {
+	*x = ExportNamespaceRequest{}
+	mi := &file_api_admin_v1_admin_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExportNamespaceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExportNamespaceRequest) ProtoMessage() {}
+
+func (x *ExportNamespaceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_admin_v1_admin_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExportNamespaceRequest.ProtoReflect.Descriptor instead.
+func (*ExportNamespaceRequest) Descriptor() ([]byte, []int) {
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{13}
+}
+
+type ExportNamespaceResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Entries       []*ExportedEntry       `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"` // unpaginated in this slice — fine for a dev/test-sized namespace, not yet for a large one
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExportNamespaceResponse) Reset() {
+	*x = ExportNamespaceResponse{}
+	mi := &file_api_admin_v1_admin_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExportNamespaceResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExportNamespaceResponse) ProtoMessage() {}
+
+func (x *ExportNamespaceResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_admin_v1_admin_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExportNamespaceResponse.ProtoReflect.Descriptor instead.
+func (*ExportNamespaceResponse) Descriptor() ([]byte, []int) {
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *ExportNamespaceResponse) GetEntries() []*ExportedEntry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
+type ExportedEntry struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Key               []byte                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Value             []byte                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	ExpiresAtUnixNano int64                  `protobuf:"varint,3,opt,name=expires_at_unix_nano,json=expiresAtUnixNano,proto3" json:"expires_at_unix_nano,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *ExportedEntry) Reset() {
+	*x = ExportedEntry{}
+	mi := &file_api_admin_v1_admin_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExportedEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExportedEntry) ProtoMessage() {}
+
+func (x *ExportedEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_api_admin_v1_admin_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExportedEntry.ProtoReflect.Descriptor instead.
+func (*ExportedEntry) Descriptor() ([]byte, []int) {
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ExportedEntry) GetKey() []byte {
+	if x != nil {
+		return x.Key
+	}
+	return nil
+}
+
+func (x *ExportedEntry) GetValue() []byte {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
+func (x *ExportedEntry) GetExpiresAtUnixNano() int64 {
+	if x != nil {
+		return x.ExpiresAtUnixNano
+	}
+	return 0
+}
+
+type DeleteNamespaceRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// confirm must equal the namespace ID being deleted, as a lightweight
+	// guard against an accidental empty-request wipe — not a substitute for
+	// proper authorization/confirmation UX, which doesn't exist yet.
+	ConfirmNamespaceId string `protobuf:"bytes,1,opt,name=confirm_namespace_id,json=confirmNamespaceId,proto3" json:"confirm_namespace_id,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *DeleteNamespaceRequest) Reset() {
+	*x = DeleteNamespaceRequest{}
+	mi := &file_api_admin_v1_admin_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteNamespaceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteNamespaceRequest) ProtoMessage() {}
+
+func (x *DeleteNamespaceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_admin_v1_admin_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteNamespaceRequest.ProtoReflect.Descriptor instead.
+func (*DeleteNamespaceRequest) Descriptor() ([]byte, []int) {
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *DeleteNamespaceRequest) GetConfirmNamespaceId() string {
+	if x != nil {
+		return x.ConfirmNamespaceId
+	}
+	return ""
+}
+
+type DeleteNamespaceResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	EntriesDeleted int32                  `protobuf:"varint,1,opt,name=entries_deleted,json=entriesDeleted,proto3" json:"entries_deleted,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *DeleteNamespaceResponse) Reset() {
+	*x = DeleteNamespaceResponse{}
+	mi := &file_api_admin_v1_admin_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteNamespaceResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteNamespaceResponse) ProtoMessage() {}
+
+func (x *DeleteNamespaceResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_admin_v1_admin_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteNamespaceResponse.ProtoReflect.Descriptor instead.
+func (*DeleteNamespaceResponse) Descriptor() ([]byte, []int) {
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *DeleteNamespaceResponse) GetEntriesDeleted() int32 {
+	if x != nil {
+		return x.EntriesDeleted
+	}
+	return 0
+}
+
+type GetUsageRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetUsageRequest) Reset() {
+	*x = GetUsageRequest{}
+	mi := &file_api_admin_v1_admin_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetUsageRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetUsageRequest) ProtoMessage() {}
+
+func (x *GetUsageRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_admin_v1_admin_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetUsageRequest.ProtoReflect.Descriptor instead.
+func (*GetUsageRequest) Descriptor() ([]byte, []int) {
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{18}
+}
+
+type GetUsageResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NamespaceId   string                 `protobuf:"bytes,1,opt,name=namespace_id,json=namespaceId,proto3" json:"namespace_id,omitempty"`
+	KeyCount      int64                  `protobuf:"varint,2,opt,name=key_count,json=keyCount,proto3" json:"key_count,omitempty"`
+	ApproxBytes   int64                  `protobuf:"varint,3,opt,name=approx_bytes,json=approxBytes,proto3" json:"approx_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetUsageResponse) Reset() {
+	*x = GetUsageResponse{}
+	mi := &file_api_admin_v1_admin_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetUsageResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetUsageResponse) ProtoMessage() {}
+
+func (x *GetUsageResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_admin_v1_admin_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetUsageResponse.ProtoReflect.Descriptor instead.
+func (*GetUsageResponse) Descriptor() ([]byte, []int) {
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *GetUsageResponse) GetNamespaceId() string {
+	if x != nil {
+		return x.NamespaceId
+	}
+	return ""
+}
+
+func (x *GetUsageResponse) GetKeyCount() int64 {
+	if x != nil {
+		return x.KeyCount
+	}
+	return 0
+}
+
+func (x *GetUsageResponse) GetApproxBytes() int64 {
+	if x != nil {
+		return x.ApproxBytes
+	}
+	return 0
+}
+
 var File_api_admin_v1_admin_proto protoreflect.FileDescriptor
 
 const file_api_admin_v1_admin_proto_rawDesc = "" +
@@ -429,12 +1008,50 @@ const file_api_admin_v1_admin_proto_rawDesc = "" +
 	"\x04Node\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\traft_addr\x18\x02 \x01(\tR\braftAddr\x12\x19\n" +
-	"\bis_voter\x18\x03 \x01(\bR\aisVoter2\xfb\x01\n" +
+	"\bis_voter\x18\x03 \x01(\bR\aisVoter\")\n" +
+	"\x13CreateBackupRequest\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\"I\n" +
+	"\x14CreateBackupResponse\x121\n" +
+	"\x06backup\x18\x01 \x01(\v2\x19.uddp.admin.v1.BackupInfoR\x06backup\"*\n" +
+	"\x14RestoreBackupRequest\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\"J\n" +
+	"\x15RestoreBackupResponse\x121\n" +
+	"\x06backup\x18\x01 \x01(\v2\x19.uddp.admin.v1.BackupInfoR\x06backup\"\xbd\x01\n" +
+	"\n" +
+	"BackupInfo\x12!\n" +
+	"\fnamespace_id\x18\x01 \x01(\tR\vnamespaceId\x12%\n" +
+	"\x0erecovery_point\x18\x02 \x01(\x04R\rrecoveryPoint\x12\x1f\n" +
+	"\ventry_count\x18\x03 \x01(\x05R\n" +
+	"entryCount\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\x04 \x01(\tR\tcreatedAt\x12%\n" +
+	"\x0esha256_entries\x18\x05 \x01(\tR\rsha256Entries\"\x18\n" +
+	"\x16ExportNamespaceRequest\"Q\n" +
+	"\x17ExportNamespaceResponse\x126\n" +
+	"\aentries\x18\x01 \x03(\v2\x1c.uddp.admin.v1.ExportedEntryR\aentries\"h\n" +
+	"\rExportedEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\fR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value\x12/\n" +
+	"\x14expires_at_unix_nano\x18\x03 \x01(\x03R\x11expiresAtUnixNano\"J\n" +
+	"\x16DeleteNamespaceRequest\x120\n" +
+	"\x14confirm_namespace_id\x18\x01 \x01(\tR\x12confirmNamespaceId\"B\n" +
+	"\x17DeleteNamespaceResponse\x12'\n" +
+	"\x0fentries_deleted\x18\x01 \x01(\x05R\x0eentriesDeleted\"\x11\n" +
+	"\x0fGetUsageRequest\"u\n" +
+	"\x10GetUsageResponse\x12!\n" +
+	"\fnamespace_id\x18\x01 \x01(\tR\vnamespaceId\x12\x1b\n" +
+	"\tkey_count\x18\x02 \x01(\x03R\bkeyCount\x12!\n" +
+	"\fapprox_bytes\x18\x03 \x01(\x03R\vapproxBytes2\xc1\x05\n" +
 	"\fAdminService\x12H\n" +
 	"\aAddNode\x12\x1d.uddp.admin.v1.AddNodeRequest\x1a\x1e.uddp.admin.v1.AddNodeResponse\x12Q\n" +
 	"\n" +
 	"RemoveNode\x12 .uddp.admin.v1.RemoveNodeRequest\x1a!.uddp.admin.v1.RemoveNodeResponse\x12N\n" +
-	"\tListNodes\x12\x1f.uddp.admin.v1.ListNodesRequest\x1a .uddp.admin.v1.ListNodesResponseB1Z/github.com/marknelson/uddp/api/admin/v1;adminv1b\x06proto3"
+	"\tListNodes\x12\x1f.uddp.admin.v1.ListNodesRequest\x1a .uddp.admin.v1.ListNodesResponse\x12W\n" +
+	"\fCreateBackup\x12\".uddp.admin.v1.CreateBackupRequest\x1a#.uddp.admin.v1.CreateBackupResponse\x12Z\n" +
+	"\rRestoreBackup\x12#.uddp.admin.v1.RestoreBackupRequest\x1a$.uddp.admin.v1.RestoreBackupResponse\x12`\n" +
+	"\x0fExportNamespace\x12%.uddp.admin.v1.ExportNamespaceRequest\x1a&.uddp.admin.v1.ExportNamespaceResponse\x12`\n" +
+	"\x0fDeleteNamespace\x12%.uddp.admin.v1.DeleteNamespaceRequest\x1a&.uddp.admin.v1.DeleteNamespaceResponse\x12K\n" +
+	"\bGetUsage\x12\x1e.uddp.admin.v1.GetUsageRequest\x1a\x1f.uddp.admin.v1.GetUsageResponseB1Z/github.com/marknelson/uddp/api/admin/v1;adminv1b\x06proto3"
 
 var (
 	file_api_admin_v1_admin_proto_rawDescOnce sync.Once
@@ -448,33 +1065,58 @@ func file_api_admin_v1_admin_proto_rawDescGZIP() []byte {
 	return file_api_admin_v1_admin_proto_rawDescData
 }
 
-var file_api_admin_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_api_admin_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_api_admin_v1_admin_proto_goTypes = []any{
-	(*AddNodeRequest)(nil),     // 0: uddp.admin.v1.AddNodeRequest
-	(*AddNodeResponse)(nil),    // 1: uddp.admin.v1.AddNodeResponse
-	(*RemoveNodeRequest)(nil),  // 2: uddp.admin.v1.RemoveNodeRequest
-	(*RemoveNodeResponse)(nil), // 3: uddp.admin.v1.RemoveNodeResponse
-	(*ListNodesRequest)(nil),   // 4: uddp.admin.v1.ListNodesRequest
-	(*ListNodesResponse)(nil),  // 5: uddp.admin.v1.ListNodesResponse
-	(*Cluster)(nil),            // 6: uddp.admin.v1.Cluster
-	(*Node)(nil),               // 7: uddp.admin.v1.Node
+	(*AddNodeRequest)(nil),          // 0: uddp.admin.v1.AddNodeRequest
+	(*AddNodeResponse)(nil),         // 1: uddp.admin.v1.AddNodeResponse
+	(*RemoveNodeRequest)(nil),       // 2: uddp.admin.v1.RemoveNodeRequest
+	(*RemoveNodeResponse)(nil),      // 3: uddp.admin.v1.RemoveNodeResponse
+	(*ListNodesRequest)(nil),        // 4: uddp.admin.v1.ListNodesRequest
+	(*ListNodesResponse)(nil),       // 5: uddp.admin.v1.ListNodesResponse
+	(*Cluster)(nil),                 // 6: uddp.admin.v1.Cluster
+	(*Node)(nil),                    // 7: uddp.admin.v1.Node
+	(*CreateBackupRequest)(nil),     // 8: uddp.admin.v1.CreateBackupRequest
+	(*CreateBackupResponse)(nil),    // 9: uddp.admin.v1.CreateBackupResponse
+	(*RestoreBackupRequest)(nil),    // 10: uddp.admin.v1.RestoreBackupRequest
+	(*RestoreBackupResponse)(nil),   // 11: uddp.admin.v1.RestoreBackupResponse
+	(*BackupInfo)(nil),              // 12: uddp.admin.v1.BackupInfo
+	(*ExportNamespaceRequest)(nil),  // 13: uddp.admin.v1.ExportNamespaceRequest
+	(*ExportNamespaceResponse)(nil), // 14: uddp.admin.v1.ExportNamespaceResponse
+	(*ExportedEntry)(nil),           // 15: uddp.admin.v1.ExportedEntry
+	(*DeleteNamespaceRequest)(nil),  // 16: uddp.admin.v1.DeleteNamespaceRequest
+	(*DeleteNamespaceResponse)(nil), // 17: uddp.admin.v1.DeleteNamespaceResponse
+	(*GetUsageRequest)(nil),         // 18: uddp.admin.v1.GetUsageRequest
+	(*GetUsageResponse)(nil),        // 19: uddp.admin.v1.GetUsageResponse
 }
 var file_api_admin_v1_admin_proto_depIdxs = []int32{
-	6, // 0: uddp.admin.v1.AddNodeResponse.cluster:type_name -> uddp.admin.v1.Cluster
-	6, // 1: uddp.admin.v1.RemoveNodeResponse.cluster:type_name -> uddp.admin.v1.Cluster
-	6, // 2: uddp.admin.v1.ListNodesResponse.cluster:type_name -> uddp.admin.v1.Cluster
-	7, // 3: uddp.admin.v1.Cluster.nodes:type_name -> uddp.admin.v1.Node
-	0, // 4: uddp.admin.v1.AdminService.AddNode:input_type -> uddp.admin.v1.AddNodeRequest
-	2, // 5: uddp.admin.v1.AdminService.RemoveNode:input_type -> uddp.admin.v1.RemoveNodeRequest
-	4, // 6: uddp.admin.v1.AdminService.ListNodes:input_type -> uddp.admin.v1.ListNodesRequest
-	1, // 7: uddp.admin.v1.AdminService.AddNode:output_type -> uddp.admin.v1.AddNodeResponse
-	3, // 8: uddp.admin.v1.AdminService.RemoveNode:output_type -> uddp.admin.v1.RemoveNodeResponse
-	5, // 9: uddp.admin.v1.AdminService.ListNodes:output_type -> uddp.admin.v1.ListNodesResponse
-	7, // [7:10] is the sub-list for method output_type
-	4, // [4:7] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	6,  // 0: uddp.admin.v1.AddNodeResponse.cluster:type_name -> uddp.admin.v1.Cluster
+	6,  // 1: uddp.admin.v1.RemoveNodeResponse.cluster:type_name -> uddp.admin.v1.Cluster
+	6,  // 2: uddp.admin.v1.ListNodesResponse.cluster:type_name -> uddp.admin.v1.Cluster
+	7,  // 3: uddp.admin.v1.Cluster.nodes:type_name -> uddp.admin.v1.Node
+	12, // 4: uddp.admin.v1.CreateBackupResponse.backup:type_name -> uddp.admin.v1.BackupInfo
+	12, // 5: uddp.admin.v1.RestoreBackupResponse.backup:type_name -> uddp.admin.v1.BackupInfo
+	15, // 6: uddp.admin.v1.ExportNamespaceResponse.entries:type_name -> uddp.admin.v1.ExportedEntry
+	0,  // 7: uddp.admin.v1.AdminService.AddNode:input_type -> uddp.admin.v1.AddNodeRequest
+	2,  // 8: uddp.admin.v1.AdminService.RemoveNode:input_type -> uddp.admin.v1.RemoveNodeRequest
+	4,  // 9: uddp.admin.v1.AdminService.ListNodes:input_type -> uddp.admin.v1.ListNodesRequest
+	8,  // 10: uddp.admin.v1.AdminService.CreateBackup:input_type -> uddp.admin.v1.CreateBackupRequest
+	10, // 11: uddp.admin.v1.AdminService.RestoreBackup:input_type -> uddp.admin.v1.RestoreBackupRequest
+	13, // 12: uddp.admin.v1.AdminService.ExportNamespace:input_type -> uddp.admin.v1.ExportNamespaceRequest
+	16, // 13: uddp.admin.v1.AdminService.DeleteNamespace:input_type -> uddp.admin.v1.DeleteNamespaceRequest
+	18, // 14: uddp.admin.v1.AdminService.GetUsage:input_type -> uddp.admin.v1.GetUsageRequest
+	1,  // 15: uddp.admin.v1.AdminService.AddNode:output_type -> uddp.admin.v1.AddNodeResponse
+	3,  // 16: uddp.admin.v1.AdminService.RemoveNode:output_type -> uddp.admin.v1.RemoveNodeResponse
+	5,  // 17: uddp.admin.v1.AdminService.ListNodes:output_type -> uddp.admin.v1.ListNodesResponse
+	9,  // 18: uddp.admin.v1.AdminService.CreateBackup:output_type -> uddp.admin.v1.CreateBackupResponse
+	11, // 19: uddp.admin.v1.AdminService.RestoreBackup:output_type -> uddp.admin.v1.RestoreBackupResponse
+	14, // 20: uddp.admin.v1.AdminService.ExportNamespace:output_type -> uddp.admin.v1.ExportNamespaceResponse
+	17, // 21: uddp.admin.v1.AdminService.DeleteNamespace:output_type -> uddp.admin.v1.DeleteNamespaceResponse
+	19, // 22: uddp.admin.v1.AdminService.GetUsage:output_type -> uddp.admin.v1.GetUsageResponse
+	15, // [15:23] is the sub-list for method output_type
+	7,  // [7:15] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_api_admin_v1_admin_proto_init() }
@@ -488,7 +1130,7 @@ func file_api_admin_v1_admin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_admin_v1_admin_proto_rawDesc), len(file_api_admin_v1_admin_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
