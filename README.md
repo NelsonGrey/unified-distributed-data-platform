@@ -1,5 +1,22 @@
 # Unified Distributed Data Platform
 
+[![CI](https://github.com/NelsonGrey/unified-distributed-data-platform/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/NelsonGrey/unified-distributed-data-platform/actions/workflows/ci.yml) [![License](https://img.shields.io/badge/license-proprietary-lightgrey.svg)](https://github.com/NelsonGrey/unified-distributed-data-platform/blob/develop/LICENSE)
+
+## Contents
+
+- [Demo](#demo)
+- [Documents](#documents)
+- [Status](#status)
+- [Building and running](#building-and-running)
+  - [TLS and authentication](#tls-and-authentication)
+  - [Replicated cluster (`durable` profile)](#replicated-cluster-durable-profile)
+  - [Scaling a cluster live (control plane, first slice)](#scaling-a-cluster-live-control-plane-first-slice)
+  - [Backup, restore, export, delete, usage](#backup-restore-export-delete-usage)
+  - [Redis compatibility (declared subset)](#redis-compatibility-declared-subset)
+  - [Performance qualification harness (TR-019)](#performance-qualification-harness-tr-019)
+  - [Kubernetes](#kubernetes)
+- [Repository Structure](#repository-structure)
+
 Proposed product and architecture package for an independently buildable distributed data platform. The working thesis is deliberately narrower than “replace Redis, Kafka, Hazelcast, and a graph database at once”: prove a dependable key-value and durable-log substrate first, with one control plane and explicit workload policies; add query and graph capabilities only after feasibility gates pass.
 
 ## Demo
@@ -214,7 +231,7 @@ kubectl apply -k deploy/kubernetes
 
 See [deploy/kubernetes/README.md](deploy/kubernetes/README.md) for details and current limitations (single replica only; TLS/auth exist but aren't wired into the manifests yet).
 
-## Code layout
+## Repository Structure
 
 Follows the [DDD](docs/DOMAIN_DRIVEN_DESIGN.md#8-code-organization-guidance) organization guidance:
 
